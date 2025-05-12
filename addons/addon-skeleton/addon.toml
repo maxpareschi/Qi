@@ -1,0 +1,4 @@
+name = "addon-scaffold"
+version = "0.1.0"
+required = true
+capabilities = []

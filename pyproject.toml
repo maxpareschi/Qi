@@ -1,0 +1,14 @@
+[project]
+name = "qi"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.115.12",
+    "pyblish-base>=1.8.12",
+    "pystray>=0.19.5",
+    "pywebview>=5.4",
+    "watchdog>=6.0.0",
+    "winloop>=0.1.8",
+]
