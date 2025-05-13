@@ -1,7 +1,8 @@
-# General Environment
+# General
 node_modules
 .svelte-kit
 .venv
+*/__pycache__/
 
 # Output
 .output
