@@ -14,13 +14,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Add a simple debug endpoint
 @app.get("/debug")
 async def debug_info():
-    log.debug(json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")))
     dev_mode = os.getenv("QI_DEV", "0")
+    dev_vite_servers = json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}"))
+    log.debug(
+        f"Debug Page: QI_DEV: {dev_mode}, QI_DEV_VITE_SERVERS: {dev_vite_servers}"
+    )
     ui_dev_servers = "\n".join(
-        [
-            f"<li>{k}: {v}</li>"
-            for k, v in json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")).items()
-        ]
+        [f"<li>{k}: {v}</li>" for k, v in dev_vite_servers.items()]
     )
     return HTMLResponse(
         content=f"""
@@ -104,51 +104,18 @@ async def root():
 
 async def dev_proxy(request: Request, call_next):
     """Middleware to log all incoming requests"""
-    print(f"[PRINT] Request: {request.method} {request.url.path}", flush=True)
-
-    print(f"[PRINT] Dev servers: {os.getenv('QI_DEV_VITE_SERVERS')}", flush=True)
-
     if dev_servers := json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")):
         for addon_name, server_url in dev_servers.items():
             if request.url.path.startswith(f"/{addon_name}"):
-                print(
-                    f"[PRINT] Redirecting to {server_url}{request.url.path}", flush=True
-                )
                 response = RedirectResponse(url=f"{server_url}{request.url.path}")
                 break
             else:
-                print(f"[PRINT] No redirect for {request.url.path}", flush=True)
                 response = await call_next(request)
     else:
         response = await call_next(request)
 
-    print(
-        f"[PRINT] Response: {request.method} {request.url.path} - Status: {response.status_code}",
-        flush=True,
-    )
-
     return response
 
 
-# Diagnostic print for QI_DEV in core/server.py module scope
-actual_qi_dev_value = os.getenv("QI_DEV")
-print(
-    f"[CORE_SERVER_MODULE] QI_DEV as seen by core/server.py: '{actual_qi_dev_value}' (type: {type(actual_qi_dev_value)})",
-    flush=True,
-)
-
-# Diagnostic print for QI_DEV_VITE_SERVERS
-actual_vite_servers_value = os.getenv("QI_DEV_VITE_SERVERS")
-print(
-    f"[CORE_SERVER_MODULE] QI_DEV_VITE_SERVERS as seen by core/server.py: '{actual_vite_servers_value}' (type: {type(actual_vite_servers_value)})",
-    flush=True,
-)
-
-if actual_qi_dev_value == "1":
-    print("[PRINT] QI DEV MODE ON! (Middleware SHOULD be applied)", flush=True)
+if os.getenv("QI_DEV") == "1":
     app.middleware("http")(dev_proxy)
-else:
-    print(
-        f"[PRINT] QI DEV MODE OFF! (Middleware will NOT be applied based on QI_DEV='{actual_qi_dev_value}')",
-        flush=True,
-    )

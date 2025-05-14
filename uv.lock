@@ -706,7 +706,6 @@ dependencies = [
     { name = "pywebview" },
     { name = "pyyaml" },
     { name = "watchdog" },
-    { name = "winloop" },
 ]
 
 [package.metadata]
@@ -718,7 +717,6 @@ requires-dist = [
     { name = "pywebview", specifier = ">=5.4" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "watchdog", specifier = ">=6.0.0" },
-    { name = "winloop", specifier = ">=0.1.8" },
 ]
 
 [[package]]
@@ -1001,15 +999,4 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/86/eb/20b6cdf273913d0ad05a6a14aed4b9a85591c18a987a3d47f20fa13dcc47/websockets-15.0.1-cp313-cp313-win32.whl", hash = "sha256:ba9e56e8ceeeedb2e080147ba85ffcd5cd0711b89576b83784d8605a7df455fa", size = 176393 },
     { url = "https://files.pythonhosted.org/packages/1b/6c/c65773d6cab416a64d191d6ee8a8b1c68a09970ea6909d16965d26bfed1e/websockets-15.0.1-cp313-cp313-win_amd64.whl", hash = "sha256:e09473f095a819042ecb2ab9465aee615bd9c2028e4ef7d933600a8401c79561", size = 176837 },
     { url = "https://files.pythonhosted.org/packages/fa/a8/5b41e0da817d64113292ab1f8247140aac61cbf6cfd085d6a0fa77f4984f/websockets-15.0.1-py3-none-any.whl", hash = "sha256:f7a866fbc1e97b5c617ee4116daaa09b722101d4a3c170c787450ba409f9736f", size = 169743 },
-]
-
-[[package]]
-name = "winloop"
-version = "0.1.8"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d3/a2/2baddef6f51d00958b938aed7860296fa9bedbe03c199bc72520c914b273/winloop-0.1.8.tar.gz", hash = "sha256:bbb1b8e12bd9d231153e4a143440d862886a67675aa1a0701f98dff42c19d857", size = 1827060 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/e5/d8e4b50057e1472b05543235a6fc55b789b3ebb28bedb567cfe228a067be/winloop-0.1.8-cp311-cp311-win_amd64.whl", hash = "sha256:d2bbcd6fc2e3eb6b0e15b9641fd1fb80a2e573c9601689ad108815ce1cdaf9bf", size = 706256 },
-    { url = "https://files.pythonhosted.org/packages/4b/e6/adf5bdba2fe893a0a9d968801b5e8096b3cc1a7b7dc45beeda2fe61692a4/winloop-0.1.8-cp312-cp312-win_amd64.whl", hash = "sha256:736a21489419369e2affdbc8f274bb0d56df318d58106fc8febf1002ffd450d7", size = 712357 },
-    { url = "https://files.pythonhosted.org/packages/fd/6a/5133b4da347bb2fd334320cacb36a8bd232af3ded2235cd085c0a2247274/winloop-0.1.8-cp313-cp313-win_amd64.whl", hash = "sha256:0c1c2d2087cb2c1b7defefed44bd875c9b040d46a32caa27d1847e06cb4e5f50", size = 712469 },
 ]

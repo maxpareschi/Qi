@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 import threading
 import time
 
@@ -12,13 +11,13 @@ import webview
 from core.log import log
 
 _stub_window: webview.Window | None = None
-_server_thread: threading.Thread | None = None
+_server_process: threading.Thread | None = None
 
 
 def get_dev_vite_servers():
     _dev_vite_server_cache: dict[str, str] = {}
     client = httpx.Client()
-    for port in range(5173, 5190):
+    for port in range(5173, 5200):
         try:
             # log.debug(f"Trying to connect to Vite server at port {port}")
             # log.setLevel(20)
@@ -41,13 +40,10 @@ def get_dev_vite_servers():
 def run_server():
     log.debug("Starting server...")
 
-    root_dir = os.getcwd()
-    scripts_dir = os.path.join(root_dir, "Scripts")
-    site_packages_dir = os.path.join(root_dir, "lib", "site-packages")
     subprocess_env = {
-        "PYTHONPATH": (
-            root_dir + os.pathsep + site_packages_dir + os.pathsep + scripts_dir
-        ).replace("\\", "/"),
+        # Keep all existing environment variables
+        **os.environ,
+        # Override specific ones
         "PYTHONUNBUFFERED": "1",
         "QI_DEV": str(os.environ.get("QI_DEV", "0")),
         "QI_LOCAL_SERVER": os.getenv("QI_LOCAL_SERVER", "127.0.0.1"),
@@ -56,8 +52,6 @@ def run_server():
     }
 
     cmd = [
-        sys.executable,
-        "-m",
         "uvicorn",
         "core.server:app",
         "--host",
@@ -67,13 +61,7 @@ def run_server():
     ]
 
     if os.getenv("QI_DEV") == "1":
-        cmd.extend(
-            [
-                "--reload",
-                "--log-level",
-                "debug",
-            ]
-        )
+        cmd.extend(["--log-level", "debug", "--workers", "1"])
     else:
         cmd.extend(["--log-level", "info", "--workers", "4"])
 
@@ -86,30 +74,35 @@ def run_server():
         bufsize=1,
     )
 
-    def _relay(process):
+    def console_relay_logs(process):
         while process.poll() is None:
             nextline = process.stdout.readline()
-            print(nextline)
-            if nextline == "":
+            if nextline.find(" | ") >= 0:
+                nextline = nextline.split(" | ")[2].strip()
+            if nextline.strip() == "":
                 continue
-            level = nextline.split(":")[0]
-            message = ":".join(nextline.split(":")[1:])
-            if level == "DEBUG":
+            level = nextline.split(":")[0].strip()
+            message = ":".join(nextline.split(":")[1:]).strip()
+            if message.find("|") >= 0:
+                message = message.split(" | ")[2].strip()
+            if level.find("DEBUG") >= 0:
                 log.debug(message)
-            elif level == "INFO":
+            elif level.find("INFO") >= 0:
                 log.info(message)
-            elif level == "WARNING":
+            elif level.find("WARNING") >= 0:
                 log.warning(message)
-            elif level == "ERROR":
+            elif level.find("ERROR") >= 0:
                 log.error(message)
-            elif level == "CRITICAL":
+            elif level.find("CRITICAL") >= 0:
                 log.critical(message)
             else:
-                log.error(nextline)
+                log.debug(nextline.strip())
 
-    threading.Thread(target=_relay, args=(server_process,), daemon=True).start()
+    threading.Thread(
+        target=console_relay_logs, args=(server_process,), daemon=True
+    ).start()
 
-    time.sleep(0.5)
+    # time.sleep(0.5)
     return server_process
 
 
@@ -129,7 +122,7 @@ if __name__ == "__main__":
     if os.getenv("QI_DEV") == "1":
         get_dev_vite_servers()
 
-    server_process = run_server()
+    _server_process = run_server()
 
     while True:
         time.sleep(1)

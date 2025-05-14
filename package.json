@@ -7,7 +7,7 @@
     "./addons/*/ui"
   ],
   "scripts": {
-    "multidev": "powershell -ExecutionPolicy Bypass -File ./tools/run_dev.ps1",
+    "all": "powershell -ExecutionPolicy Bypass -File ./tools/run_all_dev.ps1",
     "dev": "QI_DEV=\"1\" && bun run --filter './addons/*/ui' dev",
     "build": "bun run --filter './addons/*/ui' build"
   },
