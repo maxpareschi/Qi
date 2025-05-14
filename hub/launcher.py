@@ -41,9 +41,7 @@ def run_server():
     log.debug("Starting server...")
 
     subprocess_env = {
-        # Keep all existing environment variables
         **os.environ,
-        # Override specific ones
         "PYTHONUNBUFFERED": "1",
         "QI_DEV": str(os.environ.get("QI_DEV", "0")),
         "QI_LOCAL_SERVER": os.getenv("QI_LOCAL_SERVER", "127.0.0.1"),
@@ -116,8 +114,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     os.environ["QI_DEV"] = "1" if args.dev else "0"
 
-    os.environ["QI_LOCAL_SERVER"] = "127.0.0.1"
-    os.environ["QI_LOCAL_PORT"] = "8000"
+    os.environ["QI_LOCAL_SERVER"] = os.getenv("QI_LOCAL_SERVER", "127.0.0.1")
+    os.environ["QI_LOCAL_PORT"] = os.getenv("QI_LOCAL_PORT", "8000")
 
     if os.getenv("QI_DEV") == "1":
         get_dev_vite_servers()
