@@ -19,21 +19,48 @@
       <div class="window-titlebar-left">
         <img src="%sveltekit.assets%/qi_16.png" />
       </div>
-      <div class="pywebview-drag-region window-titlebar-center">Addon interface testing</div>
+      <div class="pywebview-drag-region window-titlebar-center">
+        Addon interface testing
+      </div>
       <div class="window-titlebar-right">
-        <button class="button-minimize">🗕</button>
-        <button class="button-maximize">🗖</button>
-        <button class="button-close">🞬</button>
+        <button id="button-minimize" class="button-minimize">🗕</button>
+        <button id="button-maximize" class="button-maximize">🗖</button>
+        <button id="button-close" class="button-close">🞬</button>
       </div>
     </div>
     <div class="window-content">
       <div style="display: contents">%sveltekit.body%</div>
     </div>
-    <div class="pywebview-drag-region window-footer">
-      <div class="window-footer-left">Lower left status bar</div>
-      <div class="window-footer-center">Lower center status bar</div>
-      <div class="window-footer-right">Lower right status bar</div>
+    <div class="window-footer">
+      <div class="pywebview-drag-region window-footer-container">
+        <div class="window-footer-left">Lower left status bar</div>
+        <div class="window-footer-center">Lower center status bar</div>
+        <div class="window-footer-right">Lower right status bar</div>
+      </div>
+      <div id="resizer" class="resizer">
+        <svg viewBox="0 0 100 100">
+          <polygon points="100, 0, 0, 100, 100, 100" fill="currentColor" />
+        </svg>
       </div>
     </div>
+    <script>
+
+      window.addEventListener('pywebviewready', function() {
+        console.log("Pywebview api ready!");
+      });
+
+      const resizer = document.getElementById("resizer");
+      const button_minimize = document.getElementById("button-minimize");
+      const button_maximize = document.getElementById("button-maximize");
+      const button_close = document.getElementById("button-close");
+
+      resizer.onmousedown = () => { pywebview.api.start_resize(); };
+      resizer.onmouseup = () => { pywebview.api.stop_resize(); };
+      button_minimize.onclick = () => { pywebview.api.minimize_window(); };
+      button_maximize.onclick = () => { pywebview.api.maximize_window(); };
+      button_close.onclick = () => { pywebview.api.close_window(); };
+
+    </script>
+    </script>
   </body>
 </html>

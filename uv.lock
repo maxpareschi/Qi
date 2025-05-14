@@ -327,6 +327,14 @@ wheels = [
 ]
 
 [[package]]
+name = "mouse"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/cc/4a30b48913a3bdaa3f713a160517792f829a1703257fb0869e76f945a760/mouse-0.7.1-py2.py3-none-any.whl", hash = "sha256:d34bb9548890089fcb11988400e26f55c624e6c7b741fff75fedfdfbd37c0016", size = 16170 },
+]
+
+[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -701,6 +709,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "colorlog" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "mouse" },
     { name = "pyblish-base" },
     { name = "pystray" },
     { name = "pywebview" },
@@ -712,6 +721,7 @@ dependencies = [
 requires-dist = [
     { name = "colorlog", specifier = ">=6.9.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.12" },
+    { name = "mouse", specifier = ">=0.7.1" },
     { name = "pyblish-base", specifier = ">=1.8.12" },
     { name = "pystray", specifier = ">=0.19.5" },
     { name = "pywebview", specifier = ">=5.4" },

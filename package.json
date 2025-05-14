@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "all": "powershell -ExecutionPolicy Bypass -File ./tools/run_all_dev.ps1",
+    "py": "./.venv/Scripts/activate; python.exe hub/launcher.py",
+    "pydev": "./.venv/Scripts/activate; python.exe hub/launcher.py --dev",
     "dev": "bun run --filter './addons/*/ui_src' dev",
     "build": "bun run --filter './addons/*/ui_src' build",
     "preview": "bun run --filter './addons/*/ui_src' preview"

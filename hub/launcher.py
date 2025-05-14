@@ -6,7 +6,9 @@ import threading
 import time
 
 import httpx
+import mouse
 import webview
+from webview.window import FixPoint
 
 from core.log import log
 
@@ -15,22 +17,67 @@ _windows: dict[str, webview.Window] = {}
 _server_process: threading.Thread | None = None
 
 
+class WebViewControlApi:
+    def __init__(self):
+        self.is_resizing = False
+        pass
+
+    def start_resize(self):
+        window = webview.active_window()
+        if window is None or window.hidden:
+            return {"message": "Window is not active"}
+
+        original_width = window.width
+        original_height = window.height
+        drag_start_x = mouse.get_position()[0]
+        drag_start_y = mouse.get_position()[1]
+
+        self.is_resizing = True
+
+        while self.is_resizing:
+            delta_x = mouse.get_position()[0] - drag_start_x
+            delta_y = mouse.get_position()[1] - drag_start_y
+            window.resize(
+                original_width + delta_x,
+                original_height + delta_y,
+                fix_point=FixPoint.NORTH | FixPoint.WEST,
+            )
+            time.sleep(0.01)
+
+    def stop_resize(self):
+        self.is_resizing = False
+
+    def close_window(self):
+        window = webview.active_window()
+        window.destroy()
+
+    def minimize_window(self):
+        window = webview.active_window()
+        window.minimize()
+
+    def maximize_window(self):
+        window = webview.active_window()
+        if window.maximized:
+            window.restore()
+            window.maximized = False
+        else:
+            window.maximize()
+            window.maximized = True
+
+
 def get_dev_vite_servers():
     _dev_vite_server_cache: dict[str, str] = {}
     client = httpx.Client()
     time.sleep(0.5)
     for port in range(5173, 5200):
         try:
-            # log.debug(f"Trying to connect to Vite server at port {port}")
-            # log.setLevel(20)
             addon_name = client.get(
                 f"http://127.0.0.1:{port}/healthcheck", timeout=0.03
             ).headers.get("X-Qi-Addon", None)
-            # log.setLevel(10)
             if addon_name:
                 _dev_vite_server_cache[addon_name] = f"http://127.0.0.1:{port}"
-        except httpx.RequestError as e:
-            log.debug(f"No Vite server at port {port}: {str(e)}")
+        except httpx.RequestError:
+            # log.debug(f"No Vite server at port {port}: {str(e)}")
             continue
     log.info(
         f"Found {len(_dev_vite_server_cache)} dev servers: {_dev_vite_server_cache}"
@@ -40,8 +87,6 @@ def get_dev_vite_servers():
 
 
 def run_server():
-    log.debug("Starting server...")
-
     subprocess_env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
@@ -102,7 +147,7 @@ def run_server():
         target=console_relay_logs, args=(server_process,), daemon=True
     ).start()
 
-    # time.sleep(0.5)
+    time.sleep(0.5)
     return server_process
 
 
@@ -128,6 +173,7 @@ if __name__ == "__main__":
         "QiStub",
         html="<html><body></body></html>",
         hidden=True,
+        focus=False,
     )
 
     for addon_name, url in json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")).items():
@@ -135,11 +181,18 @@ if __name__ == "__main__":
             addon_name,
             url=url,
             frameless=True,
-            easy_drag=False,
+            # easy_drag=False,
             width=800,
             height=600,
             x=500,
             y=300,
+            js_api=WebViewControlApi(),
+            background_color="#222222",
+            focus=True,
+            text_select=False,
+            min_size=(350, 250),
         )
+
+    log.debug(f"Webviews active: {webview.windows}")
 
     webview.start()
