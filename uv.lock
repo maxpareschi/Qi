@@ -704,6 +704,7 @@ dependencies = [
     { name = "pyblish-base" },
     { name = "pystray" },
     { name = "pywebview" },
+    { name = "pyyaml" },
     { name = "watchdog" },
     { name = "winloop" },
 ]
@@ -715,6 +716,7 @@ requires-dist = [
     { name = "pyblish-base", specifier = ">=1.8.12" },
     { name = "pystray", specifier = ">=0.19.5" },
     { name = "pywebview", specifier = ">=5.4" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "watchdog", specifier = ">=6.0.0" },
     { name = "winloop", specifier = ">=0.1.8" },
 ]

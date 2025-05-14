@@ -1,5 +1,18 @@
 {
-    "env": {
-        "PYTHONPATH": "${workspaceFolder}${pathSeparator}${env:PYTHONPATH}"
-    }
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File (Integrated Terminal)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "autoReload": {
+                "enabled": true
+            },
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}${pathSeparator}${env:PYTHONPATH}"
+            }
+        }
+    ]
 }

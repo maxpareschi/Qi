@@ -10,6 +10,7 @@ dependencies = [
     "pyblish-base>=1.8.12",
     "pystray>=0.19.5",
     "pywebview>=5.4",
+    "pyyaml>=6.0.2",
     "watchdog>=6.0.0",
     "winloop>=0.1.8",
 ]

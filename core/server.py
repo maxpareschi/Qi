@@ -8,42 +8,18 @@ from fastapi.staticfiles import StaticFiles
 from core.log import log
 
 app = FastAPI()
-
-
-async def dev_proxy(request: Request, call_next):
-    """Middleware to log all incoming requests"""
-    log.info(f"Request: {request.method} {request.url.path}")
-
-    log.info(f"Dev servers: {os.getenv('QI_UI_DEV_SERVERS')}")
-
-    if dev_servers := json.loads(os.getenv("QI_UI_DEV_SERVERS", "{}")):
-        for addon_name, server_url in dev_servers.items():
-            if request.url.path.startswith(f"/{addon_name}"):
-                log.info(f"Redirecting to {server_url}{request.url.path}")
-                response = RedirectResponse(url=f"{server_url}{request.url.path}")
-                break
-            else:
-                log.info(f"No redirect for {request.url.path}")
-                response = await call_next(request)
-    else:
-        response = await call_next(request)
-
-    # Log the response status code
-    log.info(
-        f"Response: {request.method} {request.url.path} - Status: {response.status_code}"
-    )
-
-    return response
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # Add a simple debug endpoint
 @app.get("/debug")
 async def debug_info():
+    log.debug(json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")))
     dev_mode = os.getenv("QI_DEV", "0")
     ui_dev_servers = "\n".join(
         [
             f"<li>{k}: {v}</li>"
-            for k, v in json.loads(os.getenv("QI_UI_DEV_SERVERS", "{}")).items()
+            for k, v in json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")).items()
         ]
     )
     return HTMLResponse(
@@ -120,19 +96,59 @@ async def debug_info():
         </html>"""
     )
 
-    # return {
-    #     "dev_mode": os.getenv("QI_DEV") == "1",
-    #     "ui_dev_servers": json.loads(os.getenv("QI_DEV_SERVERS", "{}")),
-    # }
-
 
 @app.get("/")
 async def root():
     return {"message": "Fastapi is working."}
 
 
-if os.getenv("QI_DEV") == "1":
-    log.info("QI DEV MODE ON!")
-    app.middleware("http")(dev_proxy)
+async def dev_proxy(request: Request, call_next):
+    """Middleware to log all incoming requests"""
+    print(f"[PRINT] Request: {request.method} {request.url.path}", flush=True)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+    print(f"[PRINT] Dev servers: {os.getenv('QI_DEV_VITE_SERVERS')}", flush=True)
+
+    if dev_servers := json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")):
+        for addon_name, server_url in dev_servers.items():
+            if request.url.path.startswith(f"/{addon_name}"):
+                print(
+                    f"[PRINT] Redirecting to {server_url}{request.url.path}", flush=True
+                )
+                response = RedirectResponse(url=f"{server_url}{request.url.path}")
+                break
+            else:
+                print(f"[PRINT] No redirect for {request.url.path}", flush=True)
+                response = await call_next(request)
+    else:
+        response = await call_next(request)
+
+    print(
+        f"[PRINT] Response: {request.method} {request.url.path} - Status: {response.status_code}",
+        flush=True,
+    )
+
+    return response
+
+
+# Diagnostic print for QI_DEV in core/server.py module scope
+actual_qi_dev_value = os.getenv("QI_DEV")
+print(
+    f"[CORE_SERVER_MODULE] QI_DEV as seen by core/server.py: '{actual_qi_dev_value}' (type: {type(actual_qi_dev_value)})",
+    flush=True,
+)
+
+# Diagnostic print for QI_DEV_VITE_SERVERS
+actual_vite_servers_value = os.getenv("QI_DEV_VITE_SERVERS")
+print(
+    f"[CORE_SERVER_MODULE] QI_DEV_VITE_SERVERS as seen by core/server.py: '{actual_vite_servers_value}' (type: {type(actual_vite_servers_value)})",
+    flush=True,
+)
+
+if actual_qi_dev_value == "1":
+    print("[PRINT] QI DEV MODE ON! (Middleware SHOULD be applied)", flush=True)
+    app.middleware("http")(dev_proxy)
+else:
+    print(
+        f"[PRINT] QI DEV MODE OFF! (Middleware will NOT be applied based on QI_DEV='{actual_qi_dev_value}')",
+        flush=True,
+    )
