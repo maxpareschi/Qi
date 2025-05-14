@@ -1,0 +1,133 @@
+* {
+  scrollbar-width: auto;
+  scrollbar-color: #333 transparent;
+}
+
+html,
+body,
+div {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  background-color: transparent;
+  font-size: 13px;
+}
+
+body {
+  font-family: "Segoe UI", "Readex Pro", "Bahnschrift", "Microsoft Sans Serif",
+    "FiraCode Nerd Font Light", monospace;
+  color: #bbb;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100vw;
+  height: 100vh;
+  border: 1px solid #353535;
+  background-color: #222;
+}
+
+.window-titlebar,
+.window-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 2.5rem;
+  padding: 0 0.5rem;
+  gap: 0.5rem;
+}
+
+/* Titlebar */
+
+.window-titlebar {
+  max-height: 2.5rem;
+}
+
+.window-titlebar > div {
+  height: 100%;
+  align-content: center;
+}
+
+.window-titlebar-center {
+  flex: auto;
+  font-weight: bold;
+}
+
+.window-titlebar-right {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+/* Content */
+
+.window-content {
+  flex: auto;
+  background-color: #1a1a1a;
+  padding: 0.5rem;
+  overflow: auto;
+}
+
+/* Footer */
+
+.window-footer {
+  height: 2rem;
+  max-height: 2rem;
+  font-size: 0.75rem;
+  font-family: "FiraCode Nerd Font Light", monospace;
+}
+
+/* Titlebar buttons */
+
+.button-close,
+.button-maximize,
+.button-minimize {
+  cursor: pointer;
+  user-select: none;
+  color: #aaa;
+  background-color: #2a2a2a;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 0.25rem;
+  padding: 0 0.25rem;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.button-close {
+  &:hover {
+    color: #eee;
+    background-color: #c44;
+  }
+  &:active {
+    color: #fff;
+    background-color: #f55;
+  }
+}
+
+.button-maximize {
+  &:hover {
+    color: #eee;
+    /*background-color: #353;*/
+    background-color: #444;
+  }
+  &:active {
+    color: #fff;
+    background-color: #464;
+  }
+}
+
+.button-minimize {
+  &:hover {
+    color: #eee;
+    background-color: #444;
+    /*background-color: #542;*/
+  }
+  &:active {
+    color: #fff;
+    background-color: #653;
+  }
+}

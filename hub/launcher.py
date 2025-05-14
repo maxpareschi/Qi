@@ -11,18 +11,20 @@ import webview
 from core.log import log
 
 _stub_window: webview.Window | None = None
+_windows: dict[str, webview.Window] = {}
 _server_process: threading.Thread | None = None
 
 
 def get_dev_vite_servers():
     _dev_vite_server_cache: dict[str, str] = {}
     client = httpx.Client()
+    time.sleep(0.5)
     for port in range(5173, 5200):
         try:
             # log.debug(f"Trying to connect to Vite server at port {port}")
             # log.setLevel(20)
             addon_name = client.get(
-                f"http://127.0.0.1:{port}/healthcheck", timeout=0.01
+                f"http://127.0.0.1:{port}/healthcheck", timeout=0.03
             ).headers.get("X-Qi-Addon", None)
             # log.setLevel(10)
             if addon_name:
@@ -122,5 +124,22 @@ if __name__ == "__main__":
 
     _server_process = run_server()
 
-    while True:
-        time.sleep(1)
+    _stub_window = webview.create_window(
+        "QiStub",
+        html="<html><body></body></html>",
+        hidden=True,
+    )
+
+    for addon_name, url in json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")).items():
+        _windows[addon_name] = webview.create_window(
+            addon_name,
+            url=url,
+            frameless=True,
+            easy_drag=False,
+            width=800,
+            height=600,
+            x=500,
+            y=300,
+        )
+
+    webview.start()
