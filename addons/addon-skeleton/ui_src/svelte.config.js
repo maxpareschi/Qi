@@ -7,7 +7,7 @@ const config = {
     adapter: adapter(),
     paths: {
       base: `/${addonDir}`,
-      relative: true,
+      relative: false,
     },
   },
 };

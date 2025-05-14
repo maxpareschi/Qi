@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "./addons/*/ui"
+    "./addons/*/ui_src"
   ],
   "scripts": {
     "all": "powershell -ExecutionPolicy Bypass -File ./tools/run_all_dev.ps1",
-    "dev": "QI_DEV=\"1\" && bun run --filter './addons/*/ui' dev",
-    "build": "bun run --filter './addons/*/ui' build"
+    "dev": "bun run --filter './addons/*/ui_src' dev",
+    "build": "bun run --filter './addons/*/ui_src' build",
+    "preview": "bun run --filter './addons/*/ui_src' preview"
   },
   "dependencies": {},
   "devDependencies": {
@@ -17,6 +18,7 @@
     "@sveltejs/kit": "^2.16.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "svelte": "^5.0.0",
+    "svelte-adapter-bun": "^0.5.2",
     "vite": "^6.2.6"
   }
 }
