@@ -8,10 +8,11 @@ const match_close = document.querySelectorAll(".pywebview-close");
 
 match_resizer.forEach((resizer) => {
   resizer.onmousedown = () => {
-    pywebview.api.start_resize();
-  };
-  resizer.onmouseup = () => {
-    pywebview.api.stop_resize();
+    let direction = resizer.classList
+      .toString()
+      .replace("pywebview-resizer ", "")
+      .replace("resize-", "");
+    pywebview.api.resize_window(direction);
   };
 });
 

@@ -1,0 +1,35 @@
+:root {
+  --bg-color: #1a1a1a;
+  --window-frame-color: #222;
+  --window-border-color: #303030;
+  --window-border-color-hover: #3a3a3a;
+  --window-border-color-active: #424242;
+
+  --scroll-bar-color: #333;
+  --scroll-bar-color-hover: #444;
+  --scroll-bar-color-active: #555;
+
+  --text-color: #bbb;
+  --text-color-hover: #eee;
+  --text-color-active: #fff;
+
+  --base-color: #222;
+  --base-color-hover: #353535;
+  --base-color-active: #666;
+
+  --accent-color: rgb(0, 139, 214);
+  --accent-color-hover: rgb(39, 179, 255);
+  --accent-color-active: rgb(0, 106, 163);
+
+  --error-color: rgb(117, 38, 38);
+  --error-color-hover: rgb(192, 39, 39);
+  --error-color-active: rgb(160, 35, 35);
+
+  --warning-color: rgb(180, 165, 0);
+  --warning-color-hover: rgb(250, 233, 45);
+  --warning-color-active: rgb(223, 205, 17);
+
+  --success-color: #080;
+  --success-color-hover: rgb(19, 241, 19);
+  --success-color-active: rgb(3, 196, 3);
+}

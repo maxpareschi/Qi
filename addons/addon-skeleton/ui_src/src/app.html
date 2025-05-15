@@ -9,13 +9,22 @@
       type="image/png"
       href="%sveltekit.assets%/icons/favicon.png"
     />
+    <link rel="stylesheet" href="%sveltekit.assets%/styles/root.css" />
     <link rel="stylesheet" href="%sveltekit.assets%/styles/window-frame.css" />
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
+    <div class="pywebview-resizer resize-left"></div>
+    <div class="pywebview-resizer resize-right"></div>
+    <div class="pywebview-resizer resize-bottom"></div>
+    <div class="pywebview-resizer resize-top"></div>
+    <div class="pywebview-resizer resize-handle"></div>
     <div class="window-titlebar">
-      <div class="window-titlebar-left">
-        <img src="%sveltekit.assets%/icons/qi_16.png" />
+      <div class="pywebview-drag-region window-titlebar-left">
+        <img
+          class="window-titlebar-icon"
+          src="%sveltekit.assets%/icons/qi_32.png"
+        />
       </div>
       <div class="pywebview-drag-region window-titlebar-center">
         Addon interface testing
@@ -29,17 +38,10 @@
     <div class="window-content">
       <div style="display: contents">%sveltekit.body%</div>
     </div>
-    <div class="window-footer">
-      <div class="pywebview-drag-region window-footer-container">
-        <div class="window-footer-left">Lower left status bar</div>
-        <div class="window-footer-center">Lower center status bar</div>
-        <div class="window-footer-right">Lower right status bar</div>
-      </div>
-      <div class="pywebview-resizer resize-handle">
-        <svg viewBox="0 0 100 100">
-          <polygon points="100, 0, 0, 100, 100, 100" fill="currentColor" />
-        </svg>
-      </div>
+    <div class="pywebview-drag-region window-footer">
+      <div class="window-footer-left">Lower left status bar</div>
+      <div class="window-footer-center">Lower center status bar</div>
+      <div class="window-footer-right">Lower right status bar</div>
     </div>
     <script src="%sveltekit.assets%/scripts/window-frame.js"></script>
   </body>

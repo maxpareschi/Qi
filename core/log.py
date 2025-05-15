@@ -4,7 +4,8 @@ import colorlog
 import webview
 
 formatter = colorlog.ColoredFormatter(
-    "{light_black}{asctime}{reset} | {log_color}{levelname:<8}{reset} | {message_log_color}{message}{reset} {light_black}- ({name}:{filename}:{lineno}){reset}",
+    "{light_black}{asctime}{reset} | {log_color}{levelname:<8}{reset} | {message_log_color}{message}{reset} {light_black}- ({name}.{module}.{funcName} - {filename}:{lineno}){reset}",
+    # " | {log_color}{levelname:<8}{reset} | {message_log_color}{message}{reset} {light_black}- ({name}.{module}.{funcName} - {filename}:{lineno}){reset}",
     datefmt="%y-%m-%d %H:%M:%S",
     style="{",
     reset=True,
