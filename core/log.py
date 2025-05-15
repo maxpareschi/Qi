@@ -1,7 +1,34 @@
 import logging
+import subprocess
 
 import colorlog
 import webview
+
+
+def subprocess_logger(process: subprocess.Popen):
+    while process.poll() is None:
+        nextline = process.stdout.readline()
+        if nextline.find(" | ") >= 0:
+            nextline = nextline.split(" | ")[2].strip()
+        if nextline.strip() == "":
+            continue
+        level = nextline.split(":")[0].strip()
+        message = ":".join(nextline.split(":")[1:]).strip()
+        if message.find("|") >= 0:
+            message = message.split(" | ")[2].strip()
+        if level.find("DEBUG") >= 0:
+            log.debug(message)
+        elif level.find("INFO") >= 0:
+            log.info(message)
+        elif level.find("WARNING") >= 0:
+            log.warning(message)
+        elif level.find("ERROR") >= 0:
+            log.error(message)
+        elif level.find("CRITICAL") >= 0:
+            log.critical(message)
+        else:
+            log.debug(nextline.strip())
+
 
 formatter = colorlog.ColoredFormatter(
     "{light_black}{asctime}{reset} | {log_color}{levelname:<8}{reset} | {message_log_color}{message}{reset} {light_black}- ({name}.{module}.{funcName} - {filename}:{lineno}){reset}",

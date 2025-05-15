@@ -11,21 +11,21 @@ app = FastAPI()
 
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
-app.mount(
-    "/static",
-    StaticFiles(directory=static_dir),
-    name="static",
-)
+# app.mount(
+#     "/static",
+#     StaticFiles(directory=static_dir),
+#     name="static",
+# )
 
-log.debug(f"Static directory: {static_dir}")
+# log.debug(f"Static directory: {static_dir}")
 
 
 # Add a simple debug endpoint
 @app.get("/debug")
 async def debug_info():
-    dev_mode = os.getenv("QI_DEV", "0")
+    dev_mode = os.getenv("QI_DEV_MODE", "0")
     dev_vite_servers = json.loads(os.getenv("QI_ADDONS", "{}"))
-    log.debug(f"Debug Page: QI_DEV: {dev_mode}, QI_ADDONS: {dev_vite_servers}")
+    log.debug(f"Debug Page: QI_DEV_MODE: {dev_mode}, QI_ADDONS: {dev_vite_servers}")
     ui_dev_servers = "\n".join(
         [f"<li>{k}: {v}</li>" for k, v in dev_vite_servers.items()]
     )
@@ -124,7 +124,7 @@ async def dev_proxy(request: Request, call_next):
     return response
 
 
-if os.getenv("QI_DEV") == "1":
+if bool(int(os.getenv("QI_DEV_MODE", "0"))):
     app.middleware("http")(dev_proxy)
 else:
     for addon_name in os.listdir("addons"):

@@ -15,7 +15,7 @@
 
   --base-color: #222;
   --base-color-hover: #353535;
-  --base-color-active: #666;
+  --base-color-active: #555;
 
   --accent-color: rgb(0, 139, 214);
   --accent-color-hover: rgb(39, 179, 255);
@@ -25,11 +25,15 @@
   --error-color-hover: rgb(192, 39, 39);
   --error-color-active: rgb(160, 35, 35);
 
-  --warning-color: rgb(180, 165, 0);
-  --warning-color-hover: rgb(250, 233, 45);
-  --warning-color-active: rgb(223, 205, 17);
+  --warning-color: rgb(138, 122, 0);
+  --warning-color-hover: rgb(199, 186, 38);
+  --warning-color-active: rgb(154, 142, 14);
 
   --success-color: #080;
   --success-color-hover: rgb(19, 241, 19);
   --success-color-active: rgb(3, 196, 3);
+}
+
+button {
+  border: none;
 }
