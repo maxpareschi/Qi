@@ -1,6 +1,7 @@
 import logging
 
 import colorlog
+import webview
 
 formatter = colorlog.ColoredFormatter(
     "{light_black}{asctime}{reset} | {log_color}{levelname:<8}{reset} | {message_log_color}{message}{reset} {light_black}- ({name}:{filename}:{lineno}){reset}",
@@ -35,6 +36,10 @@ for handler in log.handlers:
 
 log.addHandler(handler)
 log.setLevel(logging.DEBUG)
+
+for handler in webview.logger.handlers:
+    webview.logger.removeHandler(handler)
+webview.logger.addHandler(log.handlers[0])
 
 
 if __name__ == "__main__":

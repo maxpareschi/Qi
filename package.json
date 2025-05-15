@@ -7,18 +7,20 @@
     "./addons/*/ui_src"
   ],
   "scripts": {
-    "all": "powershell -ExecutionPolicy Bypass -File ./tools/run_all_dev.ps1",
-    "py": "./.venv/Scripts/activate; python.exe hub/launcher.py",
-    "pydev": "./.venv/Scripts/activate; python.exe hub/launcher.py --dev",
-    "dev": "bun run --filter './addons/*/ui_src' dev",
-    "build": "bun run --filter './addons/*/ui_src' build",
-    "preview": "bun run --filter './addons/*/ui_src' preview"
+    "all": "npm-run-all --serial ui-build launcher",
+    "ui-dev": "bun run --filter './addons/*/ui_src' ui-dev",
+    "ui-build": "bun run --filter './addons/*/ui_src' ui-build",
+    "ui-preview": "bun run --filter './addons/*/ui_src' ui-preview",
+    "launcher-dev": "./.venv/Scripts/activate; python -m hub.launcher --dev",
+    "launcher": "./.venv/Scripts/activate; python -m hub.launcher",
+    "all-dev": "npm-run-all --print-label --parallel ui-dev launcher-dev",
+    "all-dev-detached": "pwsh ./tools/run_all_dev.ps1"
   },
-  "dependencies": {},
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.8",
     "@sveltejs/kit": "^2.16.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "npm-run-all": "^4.1.5",
     "svelte": "^5.0.0",
     "svelte-adapter-bun": "^0.5.2",
     "vite": "^6.2.6"

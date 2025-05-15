@@ -1,5 +1,9 @@
 import { fileURLToPath } from "url";
 import path from "path";
+import { resolve } from "path";
+
+const this_filename = fileURLToPath(import.meta.url);
+const this_dirname = path.dirname(this_filename);
 
 export function qiHeader(addon) {
   return {
@@ -10,7 +14,7 @@ export function qiHeader(addon) {
         next();
       });
       // also serve a ping route for faster probing
-      server.middlewares.use("/healthcheck", (req, res, next) => {
+      server.middlewares.use("/vite", (req, res, next) => {
         res.setHeader("X-Qi-Addon", addon);
         res.end("Ui server is running.");
       });
@@ -18,7 +22,6 @@ export function qiHeader(addon) {
   };
 }
 
-// Get the directory of this config file
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-export const addonDir = path.basename(path.dirname(__dirname));
+export const addonName = path.basename(path.dirname(this_dirname));
+export const addonDir = resolve(this_dirname);
+export const addonBuildDir = resolve(path.dirname(this_dirname), "ui");

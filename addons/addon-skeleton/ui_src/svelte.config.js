@@ -1,12 +1,18 @@
 import adapter from "@sveltejs/adapter-static";
-import { addonDir } from "./qi.addon.js";
+import { addonName, addonDir, addonBuildDir } from "./qi.addon.js";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   kit: {
-    adapter: adapter(),
+    adapter: adapter({
+      pages: addonBuildDir,
+      assets: addonBuildDir,
+      fallback: "index.html",
+      precompress: true,
+      strict: true,
+    }),
     paths: {
-      base: `/${addonDir}`,
+      base: `/${addonName}`,
       relative: false,
     },
   },

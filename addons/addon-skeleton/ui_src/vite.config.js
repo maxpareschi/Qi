@@ -1,9 +1,8 @@
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
-import { qiHeader, addonDir } from "./qi.addon.js";
+import { qiHeader, addonName } from "./qi.addon.js";
 
 export default defineConfig({
-  base: `/${addonDir}/`,
-  plugins: [sveltekit(), qiHeader(addonDir)],
+  plugins: [sveltekit(), qiHeader(addonName)],
   server: { host: "127.0.0.1" },
 });

@@ -5,97 +5,20 @@ import subprocess
 import threading
 import time
 
-import httpx
-import mouse
 import webview
-from webview.window import FixPoint
+from dotenv import load_dotenv
 
 from core.log import log
+from hub.utils import WebViewControlApi, get_dev_servers
+
+load_dotenv()
 
 _stub_window: webview.Window | None = None
 _windows: dict[str, webview.Window] = {}
 _server_process: threading.Thread | None = None
 
 
-class WebViewControlApi:
-    def __init__(self):
-        self.is_resizing = False
-        pass
-
-    def start_resize(self):
-        window = webview.active_window()
-        if window is None or window.hidden:
-            return {"message": "Window is not active"}
-
-        original_width = window.width
-        original_height = window.height
-        drag_start_x = mouse.get_position()[0]
-        drag_start_y = mouse.get_position()[1]
-
-        self.is_resizing = True
-
-        while self.is_resizing:
-            delta_x = mouse.get_position()[0] - drag_start_x
-            delta_y = mouse.get_position()[1] - drag_start_y
-            window.resize(
-                original_width + delta_x,
-                original_height + delta_y,
-                fix_point=FixPoint.NORTH | FixPoint.WEST,
-            )
-            time.sleep(0.01)
-
-    def stop_resize(self):
-        self.is_resizing = False
-
-    def close_window(self):
-        window = webview.active_window()
-        window.destroy()
-
-    def minimize_window(self):
-        window = webview.active_window()
-        window.minimize()
-
-    def maximize_window(self):
-        window = webview.active_window()
-        if window.maximized:
-            window.restore()
-            window.maximized = False
-        else:
-            window.maximize()
-            window.maximized = True
-
-
-def get_dev_vite_servers():
-    _dev_vite_server_cache: dict[str, str] = {}
-    client = httpx.Client()
-    time.sleep(0.5)
-    for port in range(5173, 5200):
-        try:
-            addon_name = client.get(
-                f"http://127.0.0.1:{port}/healthcheck", timeout=0.03
-            ).headers.get("X-Qi-Addon", None)
-            if addon_name:
-                _dev_vite_server_cache[addon_name] = f"http://127.0.0.1:{port}"
-        except httpx.RequestError:
-            # log.debug(f"No Vite server at port {port}: {str(e)}")
-            continue
-    log.info(
-        f"Found {len(_dev_vite_server_cache)} dev servers: {_dev_vite_server_cache}"
-    )
-    client.close()
-    os.environ["QI_DEV_VITE_SERVERS"] = json.dumps(_dev_vite_server_cache)
-
-
 def run_server():
-    subprocess_env = {
-        **os.environ,
-        "PYTHONUNBUFFERED": "1",
-        "QI_DEV": str(os.environ.get("QI_DEV", "0")),
-        "QI_LOCAL_SERVER": os.getenv("QI_LOCAL_SERVER", "127.0.0.1"),
-        "QI_LOCAL_PORT": str(os.getenv("QI_LOCAL_PORT", "8000")),
-        "QI_DEV_VITE_SERVERS": str(os.getenv("QI_DEV_VITE_SERVERS", {})),
-    }
-
     cmd = [
         "uvicorn",
         "core.server:app",
@@ -114,7 +37,7 @@ def run_server():
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        env=subprocess_env,
+        env=os.environ,
         text=True,
         bufsize=1,
     )
@@ -152,36 +75,44 @@ def run_server():
 
 
 if __name__ == "__main__":
-    for handler in webview.logger.handlers:
-        webview.logger.removeHandler(handler)
-    webview.logger.addHandler(log.handlers[0])
+    qi_dev_mode = bool(int(os.getenv("QI_DEV", "0")))
+    qi_local_server = os.getenv("QI_LOCAL_SERVER", "http://127.0.0.1")
+    qi_local_port = os.getenv("QI_LOCAL_PORT", "8000")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
-    os.environ["QI_DEV"] = "1" if args.dev else "0"
+    if args.dev:
+        log.debug("QI_DEV mode enabled.")
+        qi_dev_mode = True
+        os.environ["QI_DEV"] = "1"
 
-    os.environ["QI_LOCAL_SERVER"] = os.getenv("QI_LOCAL_SERVER", "127.0.0.1")
-    os.environ["QI_LOCAL_PORT"] = os.getenv("QI_LOCAL_PORT", "8000")
+    if qi_dev_mode:
+        addon_urls = get_dev_servers(qi_local_server)
+    else:
+        addon_urls = dict()
+        for addon_name in os.listdir("addons"):
+            log.debug(f"Found addon: {addon_name}")
+            addon_urls[addon_name] = f"{qi_local_server}:{qi_local_port}/{addon_name}"
 
-    if os.getenv("QI_DEV") == "1":
-        get_dev_vite_servers()
+    os.environ["QI_ADDONS"] = json.dumps(addon_urls)
+
+    log.debug(f"QI_ADDONS: {addon_urls}")
 
     _server_process = run_server()
 
-    _stub_window = webview.create_window(
-        "QiStub",
-        html="<html><body></body></html>",
-        hidden=True,
-        focus=False,
-    )
+    # _stub_window = webview.create_window(
+    #     "QiStub",
+    #     html="<html><body></body></html>",
+    #     hidden=True,
+    #     focus=False,
+    # )
 
-    for addon_name, url in json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")).items():
+    for addon_name, url in addon_urls.items():
         _windows[addon_name] = webview.create_window(
             addon_name,
             url=url,
             frameless=True,
-            # easy_drag=False,
             width=800,
             height=600,
             x=500,
@@ -192,7 +123,7 @@ if __name__ == "__main__":
             text_select=False,
             min_size=(350, 250),
         )
-
-    log.debug(f"Webviews active: {webview.windows}")
-
-    webview.start()
+        log.debug(
+            f"Activated webviews: {[win.title + ' | ' + str(win.original_url) + ' | ' + win.uid for win in webview.windows]}"
+        )
+        webview.start(debug=qi_dev_mode)

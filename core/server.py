@@ -8,17 +8,24 @@ from fastapi.staticfiles import StaticFiles
 from core.log import log
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+
+app.mount(
+    "/static",
+    StaticFiles(directory=static_dir),
+    name="static",
+)
+
+log.debug(f"Static directory: {static_dir}")
 
 
 # Add a simple debug endpoint
 @app.get("/debug")
 async def debug_info():
     dev_mode = os.getenv("QI_DEV", "0")
-    dev_vite_servers = json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}"))
-    log.debug(
-        f"Debug Page: QI_DEV: {dev_mode}, QI_DEV_VITE_SERVERS: {dev_vite_servers}"
-    )
+    dev_vite_servers = json.loads(os.getenv("QI_ADDONS", "{}"))
+    log.debug(f"Debug Page: QI_DEV: {dev_mode}, QI_ADDONS: {dev_vite_servers}")
     ui_dev_servers = "\n".join(
         [f"<li>{k}: {v}</li>" for k, v in dev_vite_servers.items()]
     )
@@ -84,7 +91,7 @@ async def debug_info():
                         <div class="separator"></div>
                         <p>Dev mode: {dev_mode}</p>
                         <div class="separator"></div>
-                        <div>Dev servers:
+                        <div>Addon urls:
                             <ul>
                                 {ui_dev_servers}
                             </ul>
@@ -104,7 +111,7 @@ async def root():
 
 async def dev_proxy(request: Request, call_next):
     """Middleware to log all incoming requests"""
-    if dev_servers := json.loads(os.getenv("QI_DEV_VITE_SERVERS", "{}")):
+    if dev_servers := json.loads(os.getenv("QI_ADDONS", "{}")):
         for addon_name, server_url in dev_servers.items():
             if request.url.path.startswith(f"/{addon_name}"):
                 response = RedirectResponse(url=f"{server_url}{request.url.path}")
@@ -119,3 +126,10 @@ async def dev_proxy(request: Request, call_next):
 
 if os.getenv("QI_DEV") == "1":
     app.middleware("http")(dev_proxy)
+else:
+    for addon_name in os.listdir("addons"):
+        app.mount(
+            f"/{addon_name}",
+            StaticFiles(directory=f"addons/{addon_name}/ui", html=True),
+            name=addon_name,
+        )
