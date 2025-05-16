@@ -1,9 +1,12 @@
 :root {
   --bg-color: #1a1a1a;
+
   --window-frame-color: #222;
   --window-border-color: #303030;
   --window-border-color-hover: #3a3a3a;
   --window-border-color-active: #424242;
+
+  --reactive-color-border: rgba(255, 255, 255, 0.1);
 
   --scroll-bar-color: #333;
   --scroll-bar-color-hover: #444;
@@ -34,6 +37,34 @@
   --success-color-active: rgb(3, 196, 3);
 }
 
+* {
+  scrollbar-width: 5rem;
+  scrollbar-color: var(--scroll-bar-color) transparent;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  font-size: 13px;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  color: var(--text-color);
+  font-family: "Readex Pro", "Verdana", "Segoe UI", "FiraCode Nerd Font Light",
+    "Bahnschrift", "Microsoft Sans Serif", monospace;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
 button {
+  font-family: inherit;
+  color: inherit;
   border: none;
+  padding: 0.5rem 1rem;
 }
