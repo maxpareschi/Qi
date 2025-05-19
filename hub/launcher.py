@@ -2,24 +2,20 @@ import argparse
 import os
 import threading
 
-import webview
 from dotenv import load_dotenv
 
-from core.log import log
-from hub.runners import run_server
-from hub.utils import (
-    WebViewControlApi,
+from hub.lib.runners import run_server
+from hub.lib.utils import (
     get_dev_servers,
     sanitize_server_address,
     set_dev_mode,
     update_env,
 )
+from hub.lib.window_manager import QiWindowManager
 
 load_dotenv()
 
-_windows: dict[str, webview.Window] = {}
-_server_process: threading.Thread | None = None
-
+server_process: threading.Thread | None = None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -54,26 +50,8 @@ if __name__ == "__main__":
 
     update_env(QI_ADDONS=addon_urls)
 
-    _server_process = run_server(qi_local_server, qi_local_port)
-
-    for addon_name, url in addon_urls.items():
-        _windows[addon_name] = webview.create_window(
-            addon_name,
-            url=url,
-            min_size=(350, 250),
-            width=800,
-            height=600,
-            x=500,
-            y=300,
-            js_api=WebViewControlApi(),
-            background_color="#222222",
-            frameless=True,
-            easy_drag=False,
-        )
-
-        log.debug(
-            f"Activated webviews: {[win.title + ' | ' + url + ' | ' + win.uid for win in webview.windows]}"
-        )
+    server_process = run_server(qi_local_server, qi_local_port)
+    window_manager = QiWindowManager()
 
     icon_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -81,14 +59,18 @@ if __name__ == "__main__":
         "qi_512.png",
     ).replace("\\", "/")
 
-    log.info(f"Icon path: {icon_path}")
+    for addon_name, url in addon_urls.items():
+        window_manager.create_window(
+            addon_name,
+            url=url,
+        )
 
-    webview.start(
+    window_manager.run(
         icon=icon_path,
         debug=qi_dev_mode,
     )
 
-    if _server_process and _server_process.poll() is None:
-        _server_process.terminate()
+    if server_process and server_process.poll() is None:
+        server_process.terminate()
 
     os._exit(0)

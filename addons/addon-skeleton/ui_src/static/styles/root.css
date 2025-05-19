@@ -1,12 +1,11 @@
 :root {
-  --bg-color: #1a1a1a;
+  --bg-color: #111;
 
-  --window-frame-color: #222;
   --window-border-color: #303030;
   --window-border-color-hover: #3a3a3a;
   --window-border-color-active: #424242;
 
-  --reactive-color-border: rgba(255, 255, 255, 0.1);
+  --reactive-color-border: rgba(255, 255, 255, 0.15);
 
   --scroll-bar-color: #333;
   --scroll-bar-color-hover: #444;
@@ -16,7 +15,7 @@
   --text-color-hover: #eee;
   --text-color-active: #fff;
 
-  --base-color: #222;
+  --base-color: #1c1c1c;
   --base-color-hover: #353535;
   --base-color-active: #555;
 
@@ -35,6 +34,12 @@
   --success-color: #080;
   --success-color-hover: rgb(19, 241, 19);
   --success-color-active: rgb(3, 196, 3);
+
+  --title-bar-height: 2.7rem;
+  --status-bar-height: 1.7rem;
+
+  --resize-edge-size: 0.4rem;
+  --resize-handle-size: 1.5rem;
 }
 
 * {
@@ -52,8 +57,8 @@ body {
   height: 100vh;
   overflow: hidden;
   color: var(--text-color);
-  font-family: "Readex Pro", "Verdana", "Segoe UI", "FiraCode Nerd Font Light",
-    "Bahnschrift", "Microsoft Sans Serif", monospace;
+  font-family: "Segoe UI", "Microsoft Sans Serif", "Bahnschrift", "Readex Pro",
+    "Verdana", "FiraCode Nerd Font Light", monospace;
 }
 
 body {
@@ -66,5 +71,5 @@ button {
   font-family: inherit;
   color: inherit;
   border: none;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1.5rem;
 }
