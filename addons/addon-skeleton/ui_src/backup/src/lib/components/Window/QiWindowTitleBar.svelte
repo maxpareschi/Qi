@@ -1,12 +1,15 @@
 <script>
   import QiWindowButtonControls from "./QiWindowButtonControls.svelte";
+  import QiWindowMenu from "./QiWindowMenu.svelte";
   let {
-    icon,
-    titleContent,
-    draggable = true,
-    showClose = true,
-    showMinimize = true,
-    showMaximize = true,
+    menuIcon,
+    menuCommands,
+    title,
+    extraCommands,
+    draggable,
+    showClose,
+    showMinimize,
+    showMaximize,
   } = $props();
 
   let isMoving = false;
@@ -38,21 +41,26 @@
 </script>
 
 <div class="window-titlebar">
+  <QiWindowMenu {menuIcon} {menuCommands} {extraCommands} />
   <div
-    class="window-titlebar-icon"
+    class="window-titlebar-title"
     onmousedown={draggable ? startMove : undefined}
     role="button"
     tabindex="0"
   >
-    <img src={icon} alt="Icon" />
+    {title}
   </div>
-  <div
-    class="window-titlebar-contents"
-    onmousedown={draggable ? startMove : undefined}
-    role="button"
-    tabindex="0"
-  >
-    {@render titleContent()}
+  <div class="window-titlebar-buttons">
+    {#each extraCommands as command, index}
+      <button class="window-titlebar-extra-entry-button">
+        {#if command.icon}
+          <i class={command.icon}></i>
+        {/if}
+        {#if command.label}
+          {command.label}
+        {/if}
+      </button>
+  {/each}
   </div>
   <QiWindowButtonControls {showClose} {showMinimize} {showMaximize} />
 </div>
@@ -64,6 +72,7 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
+    overflow: hidden;
     background-color: var(--base-color);
     color: var(--text-color);
     height: var(--title-bar-height);
@@ -72,19 +81,36 @@
     border: 1px solid var(--window-border-color);
     z-index: 1500;
   }
-  .window-titlebar-icon {
+  .window-titlebar-icon,
+  .window-titlebar-menu,
+  .window-titlebar-title,
+  .window-titlebar-buttons {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     height: 100%;
     padding: 0.5rem;
   }
   .window-titlebar-icon > img {
     height: 100%;
   }
-  .window-titlebar-contents {
-    height: 100%;
+  .window-titlebar-title {
     flex: auto;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+    justify-content: center;
+    font-weight: bold;
+  }
+  .window-titlebar-extra-entry-button {
+    background-color: transparent;
+    color: var(--text-color);
+    padding: 0.25rem 0.75rem;
+    scale: 1;
+    transition: color 0.05s ease-in-out, scale 0.05s ease-in-out;
+    &:hover {
+      color: var(--text-color-hover);
+      scale: 1.2;
+    }
+    &:active {
+      color: var(--text-color-active);
+    }
   }
 </style>

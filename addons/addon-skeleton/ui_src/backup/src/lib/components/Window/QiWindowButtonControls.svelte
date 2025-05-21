@@ -22,6 +22,7 @@
     flex-direction: row;
     align-items: flex-end;
     justify-content: center;
+    border-left: 1px solid var(--window-border-color);
   }
   .window-button-controls-minimize,
   .window-button-controls-maximize,
@@ -31,9 +32,11 @@
     text-shadow: 0 0.1rem 0.1rem black;
     transition: background-color 0.1s ease-in-out;
     &:hover {
+      color: var(--text-color-hover);
       background-color: var(--base-color-hover);
     }
     &:active {
+      color: var(--text-color-active);
       background-color: var(--base-color-active);
     }
   }

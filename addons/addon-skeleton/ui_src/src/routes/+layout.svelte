@@ -1,16 +1,15 @@
 <script>
-  import QiWindow from "$lib/components/Window/QiWindow.svelte";
-  import { page } from "$app/stores";
+  import { windowSettings } from "$lib/components/Window/WindowSettings.svelte";
+  import Window from "$lib/components/Window/Window.svelte";
   import { assets } from "$app/paths";
+  
   let { children } = $props();
 </script>
 
-<QiWindow
-  title="Window title test"
-  status="Status bar test"
-  statusExtra="Connected ✔️"
-  icon={`${assets}/icons/qi_64.png`}
->
+<Window {windowSettings}>
   {@render children()}
-</QiWindow>
+</Window>
 
+<style>
+  @import url("/styles/root.css");
+</style>

@@ -1,13 +1,13 @@
 <script>
-  let { statusContent = "", statusExtraContent = "" } = $props();
+  let { status = "", statusExtra = "" } = $props();
 </script>
 
 <div class="window-statusbar">
   <div class="window-statusbar-status">
-    {@render statusContent()}
+    {status}
   </div>
   <div class="window-statusbar-extra-status">
-    {@render statusExtraContent()}
+    {statusExtra}
   </div>
 </div>
 

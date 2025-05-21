@@ -1,5 +1,5 @@
 <script>
-  let { edges = ["left", "right", "bottom", "top", "handle"] } = $props();
+  let { edges = ["left", "right", "bottom", "top", "handle"]} = $props();
 
   let isResizing = false;
   let windowPosition = { x: 0, y: 0 };

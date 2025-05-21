@@ -1,75 +1,188 @@
-:root {
-  --bg-color: #111;
+/* STYLES AND THEME BASE */
 
-  --window-border-color: #303030;
-  --window-border-color-hover: #3a3a3a;
-  --window-border-color-active: #424242;
-
-  --reactive-color-border: rgba(255, 255, 255, 0.15);
-
-  --scroll-bar-color: #333;
-  --scroll-bar-color-hover: #444;
-  --scroll-bar-color-active: #555;
-
-  --text-color: #bbb;
-  --text-color-hover: #eee;
-  --text-color-active: #fff;
-
-  --base-color: #1c1c1c;
-  --base-color-hover: #353535;
-  --base-color-active: #555;
-
-  --accent-color: rgb(0, 139, 214);
-  --accent-color-hover: rgb(39, 179, 255);
-  --accent-color-active: rgb(0, 106, 163);
-
-  --error-color: rgb(117, 38, 38);
-  --error-color-hover: rgb(192, 39, 39);
-  --error-color-active: rgb(160, 35, 35);
-
-  --warning-color: rgb(138, 122, 0);
-  --warning-color-hover: rgb(199, 186, 38);
-  --warning-color-active: rgb(154, 142, 14);
-
-  --success-color: #080;
-  --success-color-hover: rgb(19, 241, 19);
-  --success-color-active: rgb(3, 196, 3);
-
-  --title-bar-height: 2.7rem;
-  --status-bar-height: 1.7rem;
-
-  --resize-edge-size: 0.4rem;
-  --resize-handle-size: 1.5rem;
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/DMSans.ttf");
 }
 
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter.ttf");
+}
+
+:root {
+  /* Colors */
+
+  --bg-color: #111;
+  --bg-color-darker: #000;
+
+  --text-color: #aaa;
+  --text-color-inverted: #333;
+  --text-color-hover: #ddd;
+  --text-color-active: #fff;
+
+  --lining-color: #333;
+  --lining-color-hover: #444;
+  --lining-color-active: #555;
+
+  --base-color: #222;
+  --base-color-transparent: #22222200;
+  --base-color-hover: #333;
+  --base-color-active: #444;
+
+  --accent-color: #39b;
+  --accent-color-hover: #5df;
+  --accent-color-active: #4bd;
+
+  --error-color: #b33;
+  --error-color-hover: #f55;
+  --error-color-active: #d44;
+
+  --warning-color: #ba3;
+  --warning-color-hover: #fe5;
+  --warning-color-active: #dc4;
+
+  --success-color: #3b3;
+  --success-color-hover: #5f5;
+  --success-color-active: #4d4;
+
+  /* UI Sizes */
+
+  --titlebar-height: 2.7rem;
+  --statusbar-height: 1.7rem;
+
+  /* Generic Sizes */
+
+  --border-radius: 0.2rem;
+  --border-radius-small: 0.1rem;
+  --border-radius-medium: 0.2rem;
+  --border-radius-large: 0.3rem;
+  --border-radius-xlarge: 0.4rem;
+
+  --button-padding: 0.25rem 0.5rem;
+  --button-padding-small: 0.1rem 0.25rem;
+  --button-padding-medium: 0.25rem 0.5rem;
+  --button-padding-large: 0.5rem 1rem;
+  --button-padding-xlarge: 1rem 2rem;
+
+  /* Fonts */
+
+  --font-family: "Inter", "DM Sans", "Segoe UI", "Verdana", sans-serif;
+  --font-family-monospace: "FiraCode Nerd Font Light", monospace;
+  --font-size: 13px;
+  --font-size-small: 0.9rem;
+  --font-size-medium: 1rem;
+  --font-size-large: 1.1rem;
+  --font-size-xlarge: 1.2rem;
+}
+
+/* GLOBAL ELEMENT STYLES */
+
 * {
-  scrollbar-width: 5rem;
-  scrollbar-color: var(--scroll-bar-color) transparent;
-  box-sizing: border-box;
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+  scrollbar-color: var(--lining-color) transparent;
 }
 
 html,
 body {
-  font-size: 13px;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   color: var(--text-color);
-  font-family: "Segoe UI", "Microsoft Sans Serif", "Bahnschrift", "Readex Pro",
-    "Verdana", "FiraCode Nerd Font Light", monospace;
+  font-size: var(--font-size);
+  font-family: var(--font-family);
 }
 
 body {
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  height: 100vh;
 }
 
 button {
   font-family: inherit;
   color: inherit;
   border: none;
-  padding: 0.5rem 1.5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.button-error,
+.button-warning,
+.button-success,
+.button-accent {
+  color: var(--text-color-inverted);
+  border-radius: var(--border-radius);
+  transition: background-color 0.15s ease;
+}
+
+.button-error {
+  background-color: var(--error-color);
+  &:hover {
+    background-color: var(--error-color-hover);
+  }
+  &:active {
+    background-color: var(--error-color-active);
+  }
+}
+
+.button-warning {
+  background-color: var(--warning-color);
+  &:hover {
+    background-color: var(--warning-color-hover);
+  }
+  &:active {
+    background-color: var(--warning-color-active);
+  }
+}
+
+.button-success {
+  background-color: var(--success-color);
+  &:hover {
+    background-color: var(--success-color-hover);
+  }
+  &:active {
+    background-color: var(--success-color-active);
+  }
+}
+
+.button-accent {
+  background-color: var(--accent-color);
+  &:hover {
+    background-color: var(--accent-color-hover);
+  }
+  &:active {
+    background-color: var(--accent-color-active);
+  }
+}
+
+.button-base {
+  color: var(--text-color);
+  border-radius: var(--border-radius);
+  background-color: var(--base-color);
+  transition: background-color 0.15s ease, color 0.15s ease;
+  &:hover {
+    color: var(--text-color-hover);
+    background-color: var(--base-color-hover);
+  }
+  &:active {
+    color: var(--text-color-active);
+    background-color: var(--base-color-active);
+  }
+}
+
+.button-icon {
+  scale: 1;
+  color: var(--text-color);
+  background-color: transparent;
+  transition: color 0.1s ease, scale 0.1s ease, filter 0.1s ease;
+  &:hover {
+    /*scale: 1.1;*/
+    filter: brightness(1.2);
+  }
+  &:active {
+    scale: 0.9;
+    filter: brightness(0.9);
+  }
 }

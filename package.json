@@ -1,11 +1,16 @@
 {
   "name": "qi",
   "version": "0.1.0",
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.16.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "npm-run-all": "^4.1.5",
+    "svelte": "^5.0.0",
+    "svelte-adapter-bun": "^0.5.2",
+    "vite": "^6.2.6"
+  },
   "private": true,
-  "type": "module",
-  "workspaces": [
-    "./addons/*/ui_src"
-  ],
   "scripts": {
     "all": "npm-run-all --serial ui-build launcher",
     "ui-dev": "bun run --filter './addons/*/ui_src' ui-dev",
@@ -16,13 +21,11 @@
     "all-dev": "npm-run-all --print-label --parallel ui-dev launcher-dev",
     "all-dev-detached": "pwsh ./tools/run_all_dev.ps1"
   },
-  "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.8",
-    "@sveltejs/kit": "^2.16.0",
-    "@sveltejs/vite-plugin-svelte": "^5.0.0",
-    "npm-run-all": "^4.1.5",
-    "svelte": "^5.0.0",
-    "svelte-adapter-bun": "^0.5.2",
-    "vite": "^6.2.6"
+  "type": "module",
+  "workspaces": [
+    "./addons/*/ui_src"
+  ],
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^6.7.2"
   }
 }
