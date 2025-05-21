@@ -1,16 +1,17 @@
 <script>
   import WindowTitleBar from "./WindowTitleBar.svelte";
+  import WindowStatusBar from "./WindowStatusBar.svelte";
+  import WindowInteraction from "./WindowInteraction.svelte";
   let { windowSettings, children } = $props();
 </script>
 
 <div class="window">
+  <WindowInteraction {...windowSettings} />
   <WindowTitleBar {...windowSettings} />
-
   <div class="window-content">
     {@render children()}
   </div>
-
-  <div class="statusbar"></div>
+  <WindowStatusBar {...windowSettings} />
 </div>
 
 <style>

@@ -25,11 +25,8 @@
     align-items: center;
     justify-content: flex-end;
     height: 100%;
-    gap: 1.5rem;
-    padding: 0.5rem 1rem;
+    gap: 0.5rem;
+    padding: 0.5rem;
     overflow: hidden;
-  }
-  .menu > button {
-    padding: 0;
   }
 </style>

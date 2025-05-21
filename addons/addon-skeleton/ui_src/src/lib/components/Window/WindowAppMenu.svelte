@@ -3,31 +3,42 @@
   import { onMount } from "svelte";
   import { assets } from "$app/paths";
 
-  let { icon, appMenu, isAppMenuOpen = $bindable(false) } = $props();
-
+  let {
+    icon,
+    appMenu,
+    appMenuStartOpened = false,
+    isAppMenuOpen = $bindable(false),
+  } = $props();
   let menuOpen = $state(false);
-  let transitionSpeed = 200;
+  let transitionSpeed = 100;
+
+  onMount(() => {
+    menuOpen = appMenuStartOpened;
+  });
+
+  $effect(() => {
+    isAppMenuOpen = menuOpen;
+  });
 </script>
 
 <div class="menu-button">
   {#if appMenu.length > 0}
     <button
-      class="button-icon"
+      class="button-image"
       onclick={() => {
         menuOpen = !menuOpen;
-        isAppMenuOpen = menuOpen;
       }}
     >
       {#if icon.includes("/") || icon.includes("\\")}
-        <img class="menu-image" src={icon} alt="Icon" />
+        <img src={icon} alt="Qi" />
       {:else}
-        <i class="{icon} menu-icon"></i>
+        <i class={icon}></i>
       {/if}
     </button>
   {:else if icon.includes("/") || icon.includes("\\")}
-    <img class="menu-icon" src={icon} alt="Icon" />
+    <img src={icon} alt="Qi" />
   {:else}
-    <i class="menu-icon icon {icon}"></i>
+    <i class={icon}></i>
   {/if}
 </div>
 
@@ -38,7 +49,6 @@
   {#each appMenu as item, index}
     {#if menuOpen}
       <button
-        class="button-base menu-entry"
         onclick={item.action}
         aria-label={item.label}
         transition:fly={{
@@ -57,18 +67,21 @@
 </div>
 
 <style>
-  .menu-button,
-  .button-icon,
-  .menu-image,
-  .menu-icon {
+  .menu-button {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .menu-button * {
     height: 100%;
     padding: 0rem;
     align-content: center;
   }
-  .menu-image {
+  .menu-button img {
     padding: 0.5rem;
   }
-  .menu-icon {
+  .menu-button i {
     padding: 0.5rem 1rem;
   }
   .menu-content {
@@ -76,17 +89,16 @@
     display: flex;
     flex-direction: row;
     align-items: center;
+    gap: 0.5rem;
     width: 0;
     height: 100%;
     overflow: hidden;
-    transition:
-      width var(--transition-speed) ease;
-  }
-  .menu-entry {
-    padding: 0.25rem 0.75rem;
-    font-size: 0.95rem;
+    transition: width var(--transition-speed) ease;
   }
   .menu-opened {
     width: calc-size(min-content, size);
+  }
+  .menu-content * {
+    font-size: var(--font-size-small);
   }
 </style>

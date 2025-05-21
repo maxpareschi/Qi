@@ -75,6 +75,7 @@ export const windowSettings = $state({
   icon: `${assets}/icons/qi_64.png`,
   //icon: "fa-solid fa-bars",
   appMenu: appMenu,
+  appMenuStartOpened: false,
   title: "Window Title",
   fastAccessMenu: fastAccessMenu,
 

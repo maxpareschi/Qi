@@ -1,6 +1,7 @@
 <script>
   import WindowAppMenu from "./WindowAppMenu.svelte";
   import WindowFastaccessMenu from "./WindowFastaccessMenu.svelte";
+  import WindowControls from "./WindowControls.svelte";
   import { fly, fade } from "svelte/transition";
   import { onMount } from "svelte";
   let {
@@ -8,6 +9,7 @@
     icon,
     title,
     appMenu,
+    appMenuStartOpened,
     fastAccessMenu,
     showMinimize,
     showMaximize,
@@ -20,7 +22,12 @@
 </script>
 
 <div class="titlebar">
-  <WindowAppMenu {icon} {appMenu} bind:isAppMenuOpen />
+  <WindowAppMenu
+    {icon}
+    {appMenu}
+    {appMenuStartOpened}
+    bind:isAppMenuOpen
+  />
 
   <div class="title">
     <div class="title-text {isAppMenuOpen ? 'title-text-open' : ''}">
@@ -29,6 +36,11 @@
   </div>
 
   <WindowFastaccessMenu {fastAccessMenu} />
+  <WindowControls
+    {showMinimize}
+    {showMaximize}
+    {showClose}
+  />
 </div>
 
 <style>
