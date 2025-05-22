@@ -1,6 +1,6 @@
 <script>
-  let { showMinimize, showMaximize, showClose } = $props();
-  let isMaximized = $state(false);
+  let { showMinimize, showMaximize, showClose, isMaximized = $bindable(false) } = $props();
+  //let isMaximized = $state(false);
 </script>
 
 {#if showMinimize || showMaximize || showClose}

@@ -15,6 +15,7 @@
     showMaximize,
     showClose,
     draggable,
+    isMaximized = $bindable(false),
   } = $props();
 
   let isMoving = $state(false);
@@ -62,7 +63,7 @@
 <div
   class="titlebar"
   onmousedown={(e) => {
-    if (draggable && draggableElements.includes(e.target)) {
+    if (draggable && draggableElements.includes(e.target) && !isMaximized) {
       startMove(e);
     }
   }}
@@ -82,7 +83,12 @@
   </div>
 
   <WindowFastaccessMenu {fastAccessMenu} />
-  <WindowControls {showMinimize} {showMaximize} {showClose} />
+  <WindowControls
+    {showMinimize}
+    {showMaximize}
+    {showClose}
+    bind:isMaximized={isMaximized}
+  />
 </div>
 
 <style>
