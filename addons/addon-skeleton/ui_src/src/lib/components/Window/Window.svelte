@@ -6,12 +6,18 @@
 </script>
 
 <div class="window">
-  <WindowInteraction {...windowSettings} />
-  <WindowTitleBar {...windowSettings} />
+  {#if windowSettings.resizeable}
+    <WindowInteraction {...windowSettings} />
+  {/if}
+  {#if windowSettings.showTitlebar}
+    <WindowTitleBar {...windowSettings} />
+  {/if}
   <div class="window-content">
     {@render children()}
   </div>
-  <WindowStatusBar {...windowSettings} />
+  {#if windowSettings.showStatusbar}
+    <WindowStatusBar {...windowSettings} />
+  {/if}
 </div>
 
 <style>

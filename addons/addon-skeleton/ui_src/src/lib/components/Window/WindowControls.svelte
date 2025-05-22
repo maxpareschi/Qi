@@ -1,9 +1,10 @@
 <script>
   let { showMinimize, showMaximize, showClose } = $props();
+  let isMaximized = $state(false);
 </script>
 
 {#if showMinimize || showMaximize || showClose}
-  <div class="controls border">
+  <div class="controls">
     {#if showMinimize}
       <button
         class="minimize-button"
@@ -23,11 +24,16 @@
         onclick={() => {
           if (typeof pywebview !== "undefined") {
             pywebview.api.maximize();
+            isMaximized = !isMaximized;
           }
         }}
         aria-label="Maximize"
       >
-        <i class="fa-solid fa-expand"></i>
+        {#if isMaximized}
+          <i class="fa-solid fa-compress"></i>
+        {:else}
+          <i class="fa-solid fa-expand"></i>
+        {/if}
       </button>
     {/if}
     {#if showClose}
@@ -53,7 +59,7 @@
     align-items: center;
     justify-content: flex-end;
     margin: 0.5rem;
-    margin-left: 1rem;
+    margin-left: 1.5rem;
     border-radius: 0.25rem;
   }
   .controls button {

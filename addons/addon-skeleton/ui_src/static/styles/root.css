@@ -20,9 +20,9 @@
   --text-color-hover: #ddd;
   --text-color-active: #fff;
 
-  --lining-color: rgba(255, 255, 255, 0.08);
-  --lining-color-hover: rgba(255, 255, 255, 0.18);
-  --lining-color-active: rgba(255, 255, 255, 0.28);
+  --lining-color: rgba(255, 255, 255, 0.1);
+  --lining-color-hover: rgba(255, 255, 255, 0.2);
+  --lining-color-active: rgba(255, 255, 255, 0.3);
 
   --base-color: #151515;
   --base-color-transparent: #15151500;
@@ -74,6 +74,10 @@
   --font-size-medium: 1rem;
   --font-size-large: 1.1rem;
   --font-size-xlarge: 1.2rem;
+
+  /* Transitions */
+
+  --transition-speed: 150ms;
 }
 
 /* GLOBAL ELEMENT STYLES */
@@ -83,6 +87,8 @@
   padding: 0;
   box-sizing: border-box;
   scrollbar-color: var(--lining-color) transparent;
+  user-select: none;
+  cursor: default;
 }
 
 html,
@@ -118,14 +124,14 @@ button {
   background-color: transparent;
   scale: 1;
   padding: 0.25rem 0.5rem;
-  transition: background-color 0.1s ease, color 0.1s ease, scale 0.1s ease;
+  transition: background-color var(--transition-speed) ease,
+    color var(--transition-speed) ease, scale var(--transition-speed) ease;
   &:hover {
-    scale: 1.1;
     color: var(--text-color-hover);
     background-color: var(--base-color-hover);
   }
   &:active {
-    scale: 0.95;
+    scale: 0.9;
     color: var(--text-color-active);
     background-color: var(--base-color-active);
   }
@@ -141,7 +147,7 @@ button {
 }
 
 .button-image {
-  transition: filter 0.1s ease;
+  transition: filter var(--transition-speed) ease;
   &:hover {
     filter: brightness(1.1);
     background-color: transparent;

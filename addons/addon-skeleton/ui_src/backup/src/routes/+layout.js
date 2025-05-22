@@ -1,5 +1,0 @@
-import "@fortawesome/fontawesome-free/css/all.min.css";
-
-// enable SPA mode with adapter static
-export const prerender = true;
-export const ssr = false;

@@ -87,6 +87,6 @@ export const windowSettings = $state({
   statusMessageMain: "Test Message Main",
   statusMessageSub: "Test Message Sub",
 
-  resizable: true,
+  resizeable: true,
   draggable: true,
 });

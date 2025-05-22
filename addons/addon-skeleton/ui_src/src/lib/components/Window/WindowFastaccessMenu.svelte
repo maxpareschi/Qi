@@ -23,10 +23,7 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: flex-end;
-    height: 100%;
     gap: 0.5rem;
-    padding: 0.5rem;
     overflow: hidden;
   }
 </style>

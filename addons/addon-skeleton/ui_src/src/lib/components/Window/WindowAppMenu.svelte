@@ -10,10 +10,20 @@
     isAppMenuOpen = $bindable(false),
   } = $props();
   let menuOpen = $state(false);
-  let transitionSpeed = 100;
+
+  let transitionSpeed = $state(150);
 
   onMount(() => {
     menuOpen = appMenuStartOpened;
+    transitionSpeed = window
+      .getComputedStyle(document.documentElement)
+      .getPropertyValue("--transition-speed");
+    if (transitionSpeed.includes("ms")) {
+      transitionSpeed = transitionSpeed.replace("ms", "");
+    } else if (transitionSpeed.includes("s")) {
+      transitionSpeed = transitionSpeed.replace("s", "") * 1000;
+    }
+    transitionSpeed = parseInt(transitionSpeed);
   });
 
   $effect(() => {
@@ -30,22 +40,19 @@
       }}
     >
       {#if icon.includes("/") || icon.includes("\\")}
-        <img src={icon} alt="Qi" />
+        <img src={icon} alt="Qi" draggable="false" />
       {:else}
         <i class={icon}></i>
       {/if}
     </button>
   {:else if icon.includes("/") || icon.includes("\\")}
-    <img src={icon} alt="Qi" />
+    <img src={icon} alt="Qi" draggable="false" />
   {:else}
     <i class={icon}></i>
   {/if}
 </div>
 
-<div
-  class="menu-content {menuOpen ? 'menu-opened' : ''}"
-  style="--transition-speed: {transitionSpeed}ms"
->
+<div class="menu-content {menuOpen ? 'menu-opened' : ''}">
   {#each appMenu as item, index}
     {#if menuOpen}
       <button
@@ -91,7 +98,6 @@
     align-items: center;
     gap: 0.5rem;
     width: 0;
-    height: 100%;
     overflow: hidden;
     transition: width var(--transition-speed) ease;
   }

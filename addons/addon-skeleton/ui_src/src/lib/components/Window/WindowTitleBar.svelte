@@ -14,33 +14,75 @@
     showMinimize,
     showMaximize,
     showClose,
+    draggable,
   } = $props();
 
-  let isDragging = $state(false);
-  let isMounted = $state(false);
+  let isMoving = $state(false);
   let isAppMenuOpen = $state(false);
+
+  let mousePosition = { x: 0, y: 0 };
+  let dpi = window.devicePixelRatio;
+
+  let draggableElements = $state([]);
+
+  let titleRef = null;
+  let titlebarRef = null;
+  let titleTextRef = null;
+
+  onMount(() => {
+    draggableElements.push(titlebarRef);
+    draggableElements.push(titleRef);
+    draggableElements.push(titleTextRef);
+  });
+
+  function startMove(event) {
+    if (isMoving) return;
+    mousePosition = { x: event.clientX, y: event.clientY };
+    isMoving = true;
+    window.addEventListener("mousemove", doMove);
+    window.addEventListener("mouseup", stopMove);
+  }
+
+  function stopMove() {
+    if (!isMoving) return;
+    isMoving = false;
+    mousePosition = { x: 0, y: 0 };
+    window.removeEventListener("mousemove", doMove);
+    window.removeEventListener("mouseup", stopMove);
+  }
+
+  function doMove(event) {
+    if (!isMoving) return;
+    let x = Math.ceil((event.screenX - mousePosition.x) * dpi);
+    let y = Math.ceil((event.screenY - mousePosition.y) * dpi);
+    pywebview.api.move(x, y);
+  }
 </script>
 
-<div class="titlebar">
-  <WindowAppMenu
-    {icon}
-    {appMenu}
-    {appMenuStartOpened}
-    bind:isAppMenuOpen
-  />
+<div
+  class="titlebar"
+  onmousedown={(e) => {
+    if (draggable && draggableElements.includes(e.target)) {
+      startMove(e);
+    }
+  }}
+  role="button"
+  tabindex="0"
+  bind:this={titlebarRef}
+>
+  <WindowAppMenu {icon} {appMenu} {appMenuStartOpened} bind:isAppMenuOpen />
 
-  <div class="title">
-    <div class="title-text {isAppMenuOpen ? 'title-text-open' : ''}">
-      <p>{title}</p>
+  <div class="title" bind:this={titleRef}>
+    <div
+      class="title-text {isAppMenuOpen ? 'title-text-open' : ''}"
+      bind:this={titleTextRef}
+    >
+      {title}
     </div>
   </div>
 
   <WindowFastaccessMenu {fastAccessMenu} />
-  <WindowControls
-    {showMinimize}
-    {showMaximize}
-    {showClose}
-  />
+  <WindowControls {showMinimize} {showMaximize} {showClose} />
 </div>
 
 <style>
@@ -61,7 +103,6 @@
     color: var(--text-color-hover);
   }
   .title-text {
-    z-index: 10;
     position: absolute;
     left: 0;
     height: 100%;
@@ -72,8 +113,8 @@
     align-content: center;
     background-color: var(--base-color);
     transition:
-      transform 0.2s ease-in-out,
-      left 0.2s ease-in-out;
+      transform var(--transition-speed) ease-in-out,
+      left var(--transition-speed) ease-in-out;
   }
   .title-text-open {
     left: 50%;
