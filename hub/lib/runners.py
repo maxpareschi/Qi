@@ -3,7 +3,7 @@ import subprocess
 import threading
 import time
 
-from core.log import log, subprocess_logger
+from core.services.log import log, subprocess_logger
 
 
 def run_server(
@@ -24,13 +24,11 @@ def run_server(
 
     cmd = [
         "uvicorn",
-        "core.server:app",
+        "core.services.server:qi_server",
         "--host",
         host,
         "--port",
         port,
-        "--workers",
-        "1",
         "--log-level",
         "debug" if dev_mode else "info",
     ]

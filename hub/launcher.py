@@ -1,9 +1,13 @@
 import argparse
 import os
 import threading
+import time
 
 from dotenv import load_dotenv
 
+from core.services.connection_manager import connection_manager
+from core.services.window_bus import bind_window_manager_to_bus
+from core.services.window_manager import QiWindowManager
 from hub.lib.runners import run_server
 from hub.lib.utils import (
     get_dev_servers,
@@ -11,7 +15,6 @@ from hub.lib.utils import (
     set_dev_mode,
     update_env,
 )
-from hub.lib.window_manager import QiWindowManager
 
 load_dotenv()
 
@@ -50,8 +53,23 @@ if __name__ == "__main__":
 
     update_env(QI_ADDONS=addon_urls)
 
-    server_process = run_server(qi_local_server, qi_local_port)
+    # IMPORTANT: Get the connection manager instance BEFORE starting the server
+    # This ensures we use the same instance
+    print(f"Launcher.py: Connection manager instance ID: {id(connection_manager)}")
+
+    # Create and bind the window manager
     window_manager = QiWindowManager()
+    bind_window_manager_to_bus(window_manager)
+
+    # Verify handler registration
+    print("Launcher.py: Registered handlers:")
+    connection_manager.list_handlers()  # Should show registered handlers
+
+    # Now start the server
+    server_process = run_server(qi_local_server, qi_local_port)
+
+    # Wait a moment for server to initialize
+    time.sleep(1)
 
     icon_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -60,14 +78,10 @@ if __name__ == "__main__":
     ).replace("\\", "/")
 
     for addon_name, url in addon_urls.items():
-        window_manager.create_window(
-            addon_name,
-            url=url,
-        )
+        window_manager.create_window(addon=addon_name, session="test-session")
 
     window_manager.run(
         icon=icon_path,
-        debug=qi_dev_mode,
     )
 
     if server_process and server_process.poll() is None:

@@ -5,7 +5,7 @@ import time
 
 import httpx
 
-from core.log import log
+from core.services.log import log
 
 
 def set_dev_mode(mode: bool | None) -> bool:
@@ -61,9 +61,7 @@ def get_dev_servers(
                     "X-Qi-Addon", None
                 )
                 if addon_name:
-                    discovered_servers[addon_name] = (
-                        f"http://{server}:{port}/{addon_name}"
-                    )
+                    discovered_servers[addon_name] = f"http://{server}:{port}"
             except httpx.RequestError:
                 continue
 
@@ -75,5 +73,7 @@ def get_dev_servers(
 
     log.setLevel(original_log_level)
     client.close()
+
+    log.debug(f"Discovered dev servers: {discovered_servers}")
 
     return discovered_servers

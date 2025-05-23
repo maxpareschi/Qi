@@ -1,5 +1,5 @@
 import adapter from "@sveltejs/adapter-static";
-import { addonName, addonDir, addonBuildDir } from "./qi.addon.js";
+import { addonName, addonBuildDir } from "./qi.dev.addon.js";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {

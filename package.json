@@ -12,14 +12,13 @@
   },
   "private": true,
   "scripts": {
-    "all": "npm-run-all --serial ui-build launcher",
-    "ui-dev": "bun run --filter './addons/*/ui_src' ui-dev",
-    "ui-build": "bun run --filter './addons/*/ui_src' ui-build",
-    "ui-preview": "bun run --filter './addons/*/ui_src' ui-preview",
-    "launcher-dev": "./.venv/Scripts/activate; python -m hub.launcher --dev",
-    "launcher": "./.venv/Scripts/activate; python -m hub.launcher",
-    "all-dev": "npm-run-all --print-label --parallel ui-dev launcher-dev",
-    "all-dev-detached": "pwsh ./tools/run_all_dev.ps1"
+    "dev": "npm-run-all --print-label --parallel --race ui-dev hub-dev",
+    "build": "npm-run-all --serial ui-build hub",
+    "ui-dev": "bun run --filter './addons/*/ui_src' dev",
+    "ui-build": "bun run --filter './addons/*/ui_src' build",
+    "ui-preview": "bun run --filter './addons/*/ui_src' preview",
+    "hub-dev": "./.venv/Scripts/activate; python -m hub.launcher --dev",
+    "hub": "./.venv/Scripts/activate; python -m hub.launcher"
   },
   "type": "module",
   "workspaces": [

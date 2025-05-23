@@ -113,6 +113,18 @@ body {
   border: 1px solid var(--lining-color);
 }
 
+a {
+  color: var(--text-color);
+  text-decoration: none;
+  &:hover {
+    color: var(--text-color-hover);
+    text-decoration: underline;
+  }
+  &:active {
+    color: var(--text-color-active);
+  }
+}
+
 /* BUTTONS */
 
 button {
