@@ -2,7 +2,7 @@
   import WindowTitleBar from "./WindowTitleBar.svelte";
   import WindowStatusBar from "./WindowStatusBar.svelte";
   import WindowInteraction from "./WindowInteraction.svelte";
-  let { windowSettings, children} = $props();
+  let { windowSettings, children } = $props();
 
   let isMaximized = $state(false);
 </script>

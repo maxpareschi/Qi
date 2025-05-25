@@ -22,7 +22,6 @@
   let isAppMenuOpen = $state(false);
 
   let mousePosition = { x: 0, y: 0 };
-  let dpi = window.devicePixelRatio;
 
   let draggableElements = $state([]);
 
@@ -54,8 +53,8 @@
 
   function doMove(event) {
     if (!isMoving) return;
-    let x = Math.ceil((event.screenX - mousePosition.x) * dpi);
-    let y = Math.ceil((event.screenY - mousePosition.y) * dpi);
+    let x = Math.ceil(event.screenX - mousePosition.x);
+    let y = Math.ceil(event.screenY - mousePosition.y);
     pywebview.api.move(x, y);
   }
 </script>

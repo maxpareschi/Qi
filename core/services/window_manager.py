@@ -39,7 +39,7 @@ class QiWindowManager:
             The UUID of the window.
         """
 
-        url = f"http://{os.getenv('QI_LOCAL_SERVER')}:{os.getenv('QI_LOCAL_PORT')}/{addon}"
+        url = f"http://{os.getenv('QI_LOCAL_SERVER')}:{os.getenv('QI_LOCAL_PORT')}/{addon}?session={session}"
         log.debug(f"Creating window for {url}")
         window = QiWindow(url, addon=addon, session=session, **kwargs)
         self._windows[window.uuid] = window

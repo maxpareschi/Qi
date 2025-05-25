@@ -6,6 +6,7 @@
   let windowSize = { width: 0, height: 0 };
   let windowPosition = { x: 0, y: 0 };
   let minSize = { width: 400, height: 300 };
+  let dpi = window.devicePixelRatio;
 
   function startResize(event) {
     isResizing = true;
@@ -48,8 +49,8 @@
         height = event.screenY - windowPosition.y;
     }
 
-    width = Math.max(width, minSize.width);
-    height = Math.max(height, minSize.height);
+    width = Math.ceil(Math.max(width, minSize.width) * dpi);
+    height = Math.ceil(Math.max(height, minSize.height) * dpi);
     pywebview.api.resize(width, height, side);
   }
 </script>

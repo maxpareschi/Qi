@@ -1,10 +1,10 @@
 <script>
-  import { qiSocket, qiSend } from "$lib/helpers/qi.connection.svelte";
+  import { qiConnection } from "$lib/stores/qi.connection.svelte";
   
   let windows = $state([]);
   let pingResponse = $state(null);
   
-  qiSocket.onmessage = (event) => {
+  qiConnection.socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
     console.log("Received message from server: ", data);
     
@@ -16,12 +16,12 @@
     else if (data.topic === "wm.window.opened") {
       console.log("Window opened:", data.payload);
       // Refresh the window list
-      qiSend("wm.window.list_all", {});
+      qiConnection.send("wm.window.list_all", {});
     }
     else if (data.topic === "wm.window.closed") {
       console.log("Window closed:", data.payload);
       // Refresh the window list
-      qiSend("wm.window.list_all", {});
+      qiConnection.send("wm.window.list_all", {});
     }
     else if (data.topic === "test.pong") {
       console.log("Got ping response:", data.payload);
@@ -30,22 +30,23 @@
   };
 
   const createWindow = () => {
-    qiSend("wm.window.open", { addon: "addon-skeleton" });
+    qiConnection.send("wm.window.open", {});
   };
+  
   const listWindows = () => {
-    qiSend("wm.window.list_all", {});
+    qiConnection.send("wm.window.list_all", {});
   };
 
   const closeWindow = (window_uuid) => {
-    qiSend("wm.window.close", { window_uuid });
+    qiConnection.send("wm.window.close", { window_uuid });
   };
   
   const testPing = () => {
-    qiSend("test.ping", { timestamp: new Date().toISOString() });
+    qiConnection.send("test.ping", { timestamp: new Date().toISOString() });
   };
   
   const debugServer = () => {
-    qiSend("debug.server", { timestamp: new Date().toISOString() });
+    qiConnection.send("debug.server", { timestamp: new Date().toISOString() });
   };
 </script>
 
@@ -54,7 +55,7 @@
     <i class="fa-solid fa-arrow-left"></i>
     Back to home
   </button>
-  <h3>Demo addon-skeleton</h3>
+  <h2>Demo addon-skeleton: websocket and window management.</h2>
   <div class="buttons">
     <button class="border" onclick={createWindow}>Create window</button>
     <button class="border" onclick={listWindows}>List windows</button>

@@ -5,19 +5,8 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import RedirectResponse
 
-from core.services.connection_manager import connection_manager, websocket_endpoint
+from core.services.connection_manager import websocket_endpoint
 from core.services.log import log
-
-# Debug: Check connection manager object ID
-log.info(f"Server.py: Connection manager instance ID: {id(connection_manager)}")
-log.info("Server.py: Beginning handler registration")
-connection_manager.subscribe("debug.server")(
-    _debug_server_handler := lambda t, p, s: log.info(
-        f"SERVER DEBUG HANDLER: {t}, {p}, {s}"
-    )
-)
-log.info("Registered debug.server handler")
-connection_manager.list_handlers()
 
 
 async def dev_proxy(request: Request, call_next):
@@ -26,10 +15,12 @@ async def dev_proxy(request: Request, call_next):
     if dev_servers := json.loads(os.getenv("QI_ADDONS", "{}")):
         for addon_name, server_url in dev_servers.items():
             log.debug(
-                f'Name: "{addon_name}", URL: "{server_url}", REQUEST: "{request.url.path}"'
+                f'Name: "{addon_name}", URL: "{server_url}", REQUEST: "{request.url.path}", PARAMS: "{request.query_params}"'
             )
             if request.url.path.startswith(f"/{addon_name}"):
-                response = RedirectResponse(url=f"{server_url}/{addon_name}")
+                response = RedirectResponse(
+                    url=f"{server_url}/{addon_name}?{request.query_params}"
+                )
                 break
             else:
                 response = await call_next(request)
