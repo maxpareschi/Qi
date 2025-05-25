@@ -5,6 +5,7 @@ import time
 
 from dotenv import load_dotenv
 
+from hub.lib.runners import run_server
 from hub.lib.utils import (
     get_dev_servers,
     sanitize_server_address,
@@ -24,8 +25,8 @@ if __name__ == "__main__":
     qi_dev_mode = set_dev_mode(args.dev)
     qi_local_server = sanitize_server_address(os.getenv("QI_LOCAL_SERVER", "127.0.0.1"))
     qi_local_port = int(os.getenv("QI_LOCAL_PORT", 8000))
-    qi_ssl_key_path = os.getenv("QI_SSL_KEY_PATH", None)
-    qi_ssl_cert_path = os.getenv("QI_SSL_CERT_PATH", None)
+    qi_ssl_key_path = os.getenv("QI_SSL_KEY_PATH", "").replace("\\", "/")
+    qi_ssl_cert_path = os.getenv("QI_SSL_CERT_PATH", "").replace("\\", "/")
 
     update_env(
         QI_LOCAL_SERVER=qi_local_server,
@@ -49,15 +50,20 @@ if __name__ == "__main__":
 
     update_env(QI_ADDONS=addon_urls)
 
-    from core.window_manager import setup_window_manager
+    # IMPORTANT: Get the connection manager instance BEFORE starting the server
+    # This ensures we use the same instance
+    print(f"Launcher.py: Connection manager instance ID: {id(connection_manager)}")
 
-    window_manager = setup_window_manager()
+    # Create and bind the window manager
+    window_manager = QiWindowManager()
+    bind_window_manager_to_bus(window_manager)
 
-    from hub.lib.runners import run_server
+    # Verify handler registration
+    print("Launcher.py: Registered handlers:")
+    connection_manager.list_handlers()  # Should show registered handlers
 
-    server_thread = run_server(
-        qi_local_server, qi_local_port, qi_ssl_key_path, qi_ssl_cert_path, qi_dev_mode
-    )
+    # Now start the server
+    server_process = run_server(qi_local_server, qi_local_port)
 
     # Wait a moment for server to initialize
     time.sleep(1)
@@ -74,5 +80,8 @@ if __name__ == "__main__":
     window_manager.run(
         icon=icon_path,
     )
+
+    if server_process and server_process.poll() is None:
+        server_process.terminate()
 
     os._exit(0)

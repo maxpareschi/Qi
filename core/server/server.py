@@ -1,12 +1,16 @@
+# main.py
 import json
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import RedirectResponse
 
-from core.services.connection_manager import websocket_endpoint
-from core.services.log import log
+from core.logging import get_logger
+from core.server.bus import qi_bus
+
+log = get_logger(__name__)
+qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
 async def dev_proxy(request: Request, call_next):
@@ -31,9 +35,14 @@ async def dev_proxy(request: Request, call_next):
 
 
 qi_server = FastAPI()
-qi_server.websocket("/ws")(websocket_endpoint)
 
-if bool(int(os.getenv("QI_DEV_MODE", "0"))):
+
+@qi_server.websocket("/ws/{session_id}")
+async def websocket_endpoint(ws: WebSocket, session_id: str):
+    await qi_bus.accept(ws, session_id)
+
+
+if qi_dev_mode:
     qi_server.middleware("http")(dev_proxy)
     log.info("DevProxyMiddleware enabled")
 
@@ -45,11 +54,11 @@ else:
             name=addon_name,
         )
 
-qi_server.mount(
-    "/static",
-    StaticFiles(directory=os.path.join(os.getcwd(), "static")),
-    name="static",
-)
+# qi_server.mount(
+#     "/static",
+#     StaticFiles(directory=os.path.join(os.getcwd(), "static")),
+#     name="static",
+# )
 
 
 @qi_server.get("/")

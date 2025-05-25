@@ -5,7 +5,9 @@ from typing import Any, Callable
 import webview
 from webview.window import FixPoint
 
-from core.services.log import log
+from core.logging import get_logger
+
+log = get_logger(__name__)
 
 
 class QiWindow:

@@ -4,30 +4,35 @@
   let windows = $state([]);
   let pingResponse = $state(null);
   
-  qiConnection.socket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log("Received message from server: ", data);
-    
-    // Handle different message types
-    if (data.topic === "wm.window.listed") {
-      console.log("Got window list:", data.payload.windows);
-      windows = data.payload.windows || [];
-    } 
-    else if (data.topic === "wm.window.opened") {
-      console.log("Window opened:", data.payload);
-      // Refresh the window list
-      qiConnection.send("wm.window.list_all", {});
+  // Setup message handler when socket becomes available
+  $effect(() => {
+    if (qiConnection.socket) {
+      qiConnection.socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log("Received message from server: ", data);
+        
+        // Handle different message types
+        if (data.topic === "wm.window.listed") {
+          console.log("Got window list:", data.payload.windows);
+          windows = data.payload.windows || [];
+        } 
+        else if (data.topic === "wm.window.opened") {
+          console.log("Window opened:", data.payload);
+          // Refresh the window list
+          qiConnection.send("wm.window.list_all", {});
+        }
+        else if (data.topic === "wm.window.closed") {
+          console.log("Window closed:", data.payload);
+          // Refresh the window list
+          qiConnection.send("wm.window.list_all", {});
+        }
+        else if (data.topic === "test.pong") {
+          console.log("Got ping response:", data.payload);
+          pingResponse = data.payload;
+        }
+      };
     }
-    else if (data.topic === "wm.window.closed") {
-      console.log("Window closed:", data.payload);
-      // Refresh the window list
-      qiConnection.send("wm.window.list_all", {});
-    }
-    else if (data.topic === "test.pong") {
-      console.log("Got ping response:", data.payload);
-      pingResponse = data.payload;
-    }
-  };
+  });
 
   const createWindow = () => {
     qiConnection.send("wm.window.open", {});

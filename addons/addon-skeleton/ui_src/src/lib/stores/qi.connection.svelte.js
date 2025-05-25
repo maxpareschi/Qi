@@ -26,7 +26,7 @@ export function initQiConnection() {
   qiConnection.addon = add;
 
   if (!window.__qiConnection) {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws?session=${sess}`);
+    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/${sess}`);
     ws.addEventListener("open", () => {
       console.log("WebSocket opened once:", { session: sess, addon: add });
     });

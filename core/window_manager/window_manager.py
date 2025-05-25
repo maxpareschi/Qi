@@ -5,8 +5,11 @@ from typing import Any
 
 import webview
 
-from core.services.log import log
-from core.services.window import QiWindow
+from core.logging import get_logger
+from core.window_manager.window import QiWindow
+
+log = get_logger(__name__)
+qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
 class QiWindowManager:
@@ -138,8 +141,8 @@ class QiWindowManager:
             None
         """
 
-        # webview.start(*args, debug=bool(int(os.getenv("QI_DEV_MODE", "0"))), **kwargs)
-        webview.start(*args, debug=True, **kwargs)
+        webview.start(*args, debug=qi_dev_mode, **kwargs)
+        # webview.start(*args, debug=True, **kwargs)
 
     def exit(self) -> None:
         """Destroy all windows to end event loop."""

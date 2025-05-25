@@ -1,5 +1,9 @@
 <script>
+  import { qiConnection } from "$lib/stores/qi.connection.svelte";
+  import { windowSettings } from "$lib/components/Window/WindowSettings.svelte";
   import { assets } from "$app/paths";
+
+  //console.log(qiConnection);
 </script>
 
 <div class="container">

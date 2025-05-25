@@ -5,7 +5,9 @@ import time
 
 import httpx
 
-from core.services.log import log
+from core.logging import get_logger
+
+log = get_logger(__name__)
 
 
 def set_dev_mode(mode: bool | None) -> bool:
