@@ -5,10 +5,10 @@ from typing import Any
 
 import webview
 
-from core.logging import get_logger
-from core.window_manager.window import QiWindow
+from core import logger
+from core.gui.window import QiWindow
 
-log = get_logger(__name__)
+log = logger.get_logger(__name__)
 qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 

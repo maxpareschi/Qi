@@ -1,6 +1,6 @@
 <script>
   import { minimizeWindow, maximizeWindow, closeWindow } from "$lib/scripts/qi.windowScripts.svelte";
-  import { windowState } from "$lib/scripts/qi.windowState.svelte";
+  import { windowState } from "$lib/states/qi.windowState.svelte";
 
   let {
     data,

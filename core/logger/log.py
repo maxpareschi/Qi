@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 
 # ANSI color codes
 COLORS = {
@@ -37,12 +36,18 @@ LEVEL_COLORS = {
 }
 
 MESSAGE_COLORS = {
-    "DEBUG": COLORS["reset"],
-    "INFO": COLORS["reset"],
+    "DEBUG": COLORS["light_black"],
+    "INFO": COLORS["light_white"],
     "WARNING": COLORS["yellow"],
     "ERROR": COLORS["bold_red"],
     "CRITICAL": COLORS["fg_bold_white_bg_bold_red"],
 }
+
+DEBUG = logging.DEBUG
+INFO = logging.INFO
+WARNING = logging.WARNING
+ERROR = logging.ERROR
+CRITICAL = logging.CRITICAL
 
 
 class QiCustomFormatter(logging.Formatter):
@@ -59,31 +64,49 @@ class QiCustomFormatter(logging.Formatter):
             f"{COLORS['light_black']}{record.asctime}{COLORS['reset']} | "
             f"{log_color}{record.levelname:<8}{COLORS['reset']} | "
             f"{message_color}{record.getMessage()}{COLORS['reset']} "
-            f"{COLORS['light_black']}- ({record.name}.{record.module}.{record.funcName} - {record.filename}:{record.lineno}){COLORS['reset']}"
+            f"{COLORS['light_black']}- ({record.name}.{record.funcName} - {record.filename}:{record.lineno}){COLORS['reset']}"
         )
 
         return colored_format
 
 
-handler = logging.StreamHandler(stream=sys.stdout)
+handler = logging.StreamHandler()
 handler.setFormatter(QiCustomFormatter())
+handler.setLevel(DEBUG)
 
 root_logger = logging.getLogger()
 root_logger.addHandler(handler)
-root_logger.setLevel(
-    logging.DEBUG if os.getenv("QI_DEV_MODE", "0") == "1" else logging.WARNING
-)
+root_logger.setLevel(DEBUG)
 
 
-def get_logger(
-    name: str | None = None, level: int | str = logging.WARNING
-) -> logging.Logger:
+def set_level(level: int) -> None:
+    handler.setLevel(level)
+    root_logger.setLevel(level)
+
+
+def get_logger(name: str | None = None, level: int | None = None) -> logging.Logger:
     """
     Get a logger with a custom formatter.
     """
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG if os.getenv("QI_DEV_MODE", "0") == "1" else level)
-    return logger
+    qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
+    qi_log_level = os.getenv("QI_LOG_LEVEL", "WARNING").upper()
+
+    level_map = {
+        "DEBUG": DEBUG,
+        "INFO": INFO,
+        "WARNING": WARNING,
+        "ERROR": ERROR,
+        "CRITICAL": CRITICAL,
+    }
+
+    if level is not None:
+        qi_log_level = level
+    if qi_dev_mode:
+        qi_log_level = "DEBUG"
+
+    level = level_map[qi_log_level]
+    set_level(level)
+    return logging.getLogger(name)
 
 
 if __name__ == "__main__":

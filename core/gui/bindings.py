@@ -1,30 +1,26 @@
 from typing import Any
 
-from core.logging import get_logger
+from core import logger
+from core.gui.window_manager import QiWindowManager
 from core.server.bus import qi_bus
-from core.window_manager.window_manager import QiWindowManager
 
-log = get_logger(__name__)
+log = logger.get_logger(__name__)
 
 
-def bind_window_manager_to_bus(wm: QiWindowManager) -> None:
+def register_window_manager_handlers(wm: QiWindowManager) -> None:
     """Subscribes to the window manager events,
     executes relevant commands, replies to the bus."""
 
-    log.info("BINDING WINDOW MANAGER TO BUS")
+    log.info("Registering bus handlers for window manager.")
 
-    # Register a simple test handler to verify pattern matching works
     @qi_bus.on("test.ping")
     async def _test_ping(
         topic: str, payload: dict[str, Any] | Any | None, session: str
     ) -> None:
         log.info(
-            f"TEST PING HANDLER CALLED with topic={topic}, payload={payload}, session={session}"
+            f"test.ping handler called with topic={topic}, payload={payload}, session={session}"
         )
         await qi_bus.emit("test.pong", {"received": payload}, session=session)
-
-    # Verify this handler is registered
-    log.info("Registered test.ping handler")
 
     @qi_bus.on("wm.window.open")
     async def _open(

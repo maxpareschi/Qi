@@ -1,4 +1,5 @@
 import { browser } from "$app/environment";
+import { windowState } from "$lib/states/qi.windowState.svelte";
 
 export const qiConnection = $state({
   session: null,
@@ -7,28 +8,30 @@ export const qiConnection = $state({
   send: () => {},
 });
 
-export function initQiConnection() {
-  if (!browser) return;
-
-  let sess = sessionStorage.getItem("qiSession");
-  if (!sess) {
+export const initQiConnection = () => {
+  let session = sessionStorage.getItem("qiSession");
+  if (!session) {
     const params = new URLSearchParams(location.search);
-    sess = params.get("session") ?? crypto.randomUUID();
-    sessionStorage.setItem("qiSession", sess);
+    session = params.get("session") ?? crypto.randomUUID();
+    sessionStorage.setItem("qiSession", session);
   }
-  qiConnection.session = sess;
+  qiConnection.session = session;
 
-  let add = sessionStorage.getItem("qiAddon");
-  if (!add) {
-    add = location.pathname.split("/").filter(Boolean)[0] ?? "";
-    sessionStorage.setItem("qiAddon", add);
+  let addon = sessionStorage.getItem("qiAddon");
+  if (!addon) {
+    addon = location.pathname.split("/").filter(Boolean)[0] ?? "";
+    sessionStorage.setItem("qiAddon", addon);
   }
-  qiConnection.addon = add;
+  qiConnection.addon = addon;
 
   if (!window.__qiConnection) {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/${sess}`);
+    const ws = new WebSocket(`ws://127.0.0.1:8000/ws?session=${session}`);
     ws.addEventListener("open", () => {
-      console.log("WebSocket opened once:", { session: sess, addon: add });
+      // console.log("WebSocket opened once:", {
+      //   session: session,
+      //   addon: addon,
+      //   socket: ws,
+      // });
     });
     window.__qiConnection = ws;
   }
@@ -44,10 +47,4 @@ export function initQiConnection() {
       })
     );
   };
-}
-
-export function closeQiConnection() {
-  if (qiConnection.socket) {
-    qiConnection.socket.close();
-  }
-}
+};

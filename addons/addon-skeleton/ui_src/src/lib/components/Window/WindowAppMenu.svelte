@@ -2,7 +2,7 @@
   import { fly } from "svelte/transition";
   import { onMount } from "svelte";
   import { assets } from "$app/paths";
-  import { windowState } from "$lib/scripts/qi.windowState.svelte";
+  import { windowState } from "$lib/states/qi.windowState.svelte";
   let {
     icon,
     appMenu,

@@ -69,7 +69,7 @@ const fastAccessMenu = [
   },
 ];
 
-export const windowFlags = $state({
+export let windowFlags = $state({
   resizeable: true,
   resizeSides: [
     "top",
@@ -86,10 +86,10 @@ export const windowFlags = $state({
   showMaximize: true,
   showClose: true,
   showStatusbar: true,
+  showAppBorder: true,
 });
 
-export const windowState = $state({
-  // Window State: DO NOT CHANGE
+export let windowState = $state({
   isMoving: false,
   isResizing: false,
   isMaximized: false,

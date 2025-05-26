@@ -24,7 +24,7 @@ from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from core.logging import get_logger
+from core import logger
 
 # --------------------------------------------------------------------------- #
 #                               CONFIG / CONSTANTS                            #
@@ -34,7 +34,7 @@ PING_INTERVAL = 20  # seconds between pings
 MAX_IDLE = 60  # drop if no pong in N seconds
 MAX_QUEUE = 256  # unsent messages kept per session
 
-log = get_logger(__name__)
+log = logger.get_logger(__name__)
 qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 # --------------------------------------------------------------------------- #
@@ -101,9 +101,9 @@ class QiEventBus(metaclass=_Singleton):
     def list_handlers(self) -> None:
         """List all registered handlers."""
         for topic, handlers in self._handlers.items():
-            log.info(f"Handlers for topic: '{topic}'")
-            for handler in handlers:
-                log.info(f"> {handler.__name__}")
+            log.debug(
+                f"Handlers for topic: '{topic}' : {[handler.__name__ for handler in handlers]}"
+            )
 
     def on(self, topic: str) -> Callable[[Handler], Handler]:
         """Decorator to register a handler for a specific topic.
@@ -113,7 +113,7 @@ class QiEventBus(metaclass=_Singleton):
         topic = topic.strip()
 
         def decorator(func: Handler) -> Handler:
-            log.info(f"Registering handler: '{func.__name__}' for pattern: '{topic}'")
+            log.debug(f"Registering handler: '{func.__name__}' for pattern: '{topic}'")
             self._handlers[topic].add(func)
             return func
 

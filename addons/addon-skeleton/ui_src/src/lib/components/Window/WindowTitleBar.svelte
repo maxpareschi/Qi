@@ -2,7 +2,7 @@
   import { startMove, stopMove, doMove } from "$lib/scripts/qi.windowScripts.svelte";
   import { fly, fade } from "svelte/transition";
   import { onMount } from "svelte";
-  import { windowState } from "$lib/scripts/qi.windowState.svelte";
+  import { windowState } from "$lib/states/qi.windowState.svelte";
   import WindowAppMenu from "./WindowAppMenu.svelte";
   import WindowFastaccessMenu from "./WindowFastaccessMenu.svelte";
   import WindowControls from "./WindowControls.svelte";
@@ -30,6 +30,10 @@
     draggableElements.push(titlebarRef);
     draggableElements.push(titleRef);
     draggableElements.push(titleTextRef);
+  });
+
+  $effect(() => {
+    windowState.title = "Qi - " + window.location.pathname.split("/").filter(Boolean).join("/");
   });
 </script>
 

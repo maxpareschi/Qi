@@ -1,7 +1,5 @@
 <script>
   import { assets } from "$app/paths";
-
-  //console.log(qiConnection);
 </script>
 
 <div class="container">

@@ -5,12 +5,8 @@ import time
 
 from dotenv import load_dotenv
 
-from hub.lib.utils import (
-    get_dev_servers,
-    sanitize_server_address,
-    set_dev_mode,
-    update_env,
-)
+from core import logger
+from hub.lib.utils import get_dev_servers, sanitize_server_address, update_env
 
 load_dotenv()
 
@@ -21,19 +17,21 @@ if __name__ == "__main__":
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 
-    qi_dev_mode = set_dev_mode(args.dev)
     qi_local_server = sanitize_server_address(os.getenv("QI_LOCAL_SERVER", "127.0.0.1"))
     qi_local_port = int(os.getenv("QI_LOCAL_PORT", 8000))
     qi_ssl_key_path = os.getenv("QI_SSL_KEY_PATH", None)
     qi_ssl_cert_path = os.getenv("QI_SSL_CERT_PATH", None)
+    qi_dev_mode = args.dev
 
     update_env(
         QI_LOCAL_SERVER=qi_local_server,
         QI_LOCAL_PORT=qi_local_port,
         QI_SSL_KEY_PATH=qi_ssl_key_path,
         QI_SSL_CERT_PATH=qi_ssl_cert_path,
-        QI_DEV_MODE=int(qi_dev_mode),
+        QI_DEV_MODE=str(int(qi_dev_mode)),
     )
+
+    log = logger.get_logger(__name__)
 
     addon_paths = os.listdir("addons")  # to be replaced with addon manager call
     addon_urls = dict()
@@ -49,7 +47,7 @@ if __name__ == "__main__":
 
     update_env(QI_ADDONS=addon_urls)
 
-    from core.window_manager import setup_window_manager
+    from core.gui import setup_window_manager
 
     window_manager = setup_window_manager()
 

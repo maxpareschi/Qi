@@ -1,4 +1,4 @@
-import { windowState } from "./qi.windowState.svelte";
+import { windowState } from "../states/qi.windowState.svelte";
 
 export const minimizeWindow = () => {
   if (typeof pywebview !== "undefined") {

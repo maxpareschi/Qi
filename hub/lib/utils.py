@@ -1,22 +1,12 @@
 import json
-import logging
 import os
 import time
 
 import httpx
 
-from core.logging import get_logger
+from core import logger
 
-log = get_logger(__name__)
-
-
-def set_dev_mode(mode: bool | None) -> bool:
-    os.environ["QI_DEV_MODE"] = "1" if mode else "0"
-    return get_dev_mode()
-
-
-def get_dev_mode() -> bool:
-    return bool(int(os.getenv("QI_DEV_MODE", "0")))
+log = logger.get_logger(__name__)
 
 
 def sanitize_server_address(server: str) -> str:
@@ -51,7 +41,7 @@ def get_dev_servers(
     discovered_servers: dict[str, str] = dict()
 
     original_log_level = log.getEffectiveLevel()
-    log.setLevel(logging.WARNING)
+    logger.set_level(logger.WARNING)
 
     for _ in range(max_tries):
         discovered_servers = {}
@@ -73,9 +63,9 @@ def get_dev_servers(
         log.warning(f"No dev servers found on {server}:{port_range} retrying...")
         time.sleep(0.01)
 
-    log.setLevel(original_log_level)
     client.close()
 
-    log.debug(f"Discovered dev servers: {discovered_servers}")
+    logger.set_level(original_log_level)
+    log.info(f"Discovered dev servers: {discovered_servers}")
 
     return discovered_servers
