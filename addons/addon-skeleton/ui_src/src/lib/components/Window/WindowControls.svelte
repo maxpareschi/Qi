@@ -1,10 +1,12 @@
 <script>
+  import { minimizeWindow, maximizeWindow, closeWindow } from "$lib/scripts/qi.windowScripts.svelte";
+  import { windowState } from "$lib/scripts/qi.windowState.svelte";
+
   let {
     data,
     showMinimize,
     showMaximize,
     showClose,
-    isMaximized = $bindable(false),
   } = $props();
 
 </script>
@@ -14,11 +16,7 @@
     {#if showMinimize}
       <button
         class="minimize-button"
-        onclick={() => {
-          if (typeof pywebview !== "undefined") {
-            pywebview.api.minimize();
-          }
-        }}
+        onclick={minimizeWindow}
         aria-label="Minimize"
       >
         <i class="fa-solid fa-window-minimize"></i>
@@ -27,15 +25,10 @@
     {#if showMaximize}
       <button
         class="maximize-button"
-        onclick={() => {
-          if (typeof pywebview !== "undefined") {
-            pywebview.api.maximize();
-            isMaximized = !isMaximized;
-          }
-        }}
+        onclick={maximizeWindow}
         aria-label="Maximize"
       >
-        {#if isMaximized}
+        {#if windowState.isMaximized}
           <i class="fa-solid fa-compress"></i>
         {:else}
           <i class="fa-solid fa-expand"></i>
@@ -45,11 +38,7 @@
     {#if showClose}
       <button
         class="close-button"
-        onclick={() => {
-          if (typeof pywebview !== "undefined") {
-            pywebview.api.close();
-          }
-        }}
+        onclick={closeWindow}
         aria-label="Close"
       >
         <i class="fa-solid fa-xmark"></i>

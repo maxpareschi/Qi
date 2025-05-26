@@ -2,19 +2,17 @@
   import { fly } from "svelte/transition";
   import { onMount } from "svelte";
   import { assets } from "$app/paths";
-
+  import { windowState } from "$lib/scripts/qi.windowState.svelte";
   let {
     icon,
     appMenu,
-    appMenuStartOpened = false,
-    isAppMenuOpen = $bindable(false),
+    appMenuOpenedAtStart,
   } = $props();
-  let menuOpen = $state(false);
 
   let transitionSpeed = $state(150);
 
   onMount(() => {
-    menuOpen = appMenuStartOpened;
+    windowState.isAppMenuOpen = appMenuOpenedAtStart;
     transitionSpeed = window
       .getComputedStyle(document.documentElement)
       .getPropertyValue("--transition-speed");
@@ -26,9 +24,6 @@
     transitionSpeed = parseInt(transitionSpeed);
   });
 
-  $effect(() => {
-    isAppMenuOpen = menuOpen;
-  });
 </script>
 
 <div class="menu-button">
@@ -36,7 +31,7 @@
     <button
       class="button-image"
       onclick={() => {
-        menuOpen = !menuOpen;
+        windowState.isAppMenuOpen = !windowState.isAppMenuOpen;
       }}
     >
       {#if icon.includes("/") || icon.includes("\\")}
@@ -52,9 +47,9 @@
   {/if}
 </div>
 
-<div class="menu-content {menuOpen ? 'menu-opened' : ''}">
+<div class="menu-content {windowState.isAppMenuOpen ? 'menu-opened' : ''}">
   {#each appMenu as item, index}
-    {#if menuOpen}
+    {#if windowState.isAppMenuOpen}
       <button
         onclick={item.action}
         aria-label={item.label}

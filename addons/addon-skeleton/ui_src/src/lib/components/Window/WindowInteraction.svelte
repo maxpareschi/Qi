@@ -1,63 +1,11 @@
 <script>
-  let { resizeable, draggable, dragHandle = null } = $props();
-  let sides = ["top", "bottom", "left", "right", "handle"];
-  let isResizing = $state(false);
-  let side = $state(null);
-  let windowSize = { width: 0, height: 0 };
-  let windowPosition = { x: 0, y: 0 };
-  let minSize = { width: 400, height: 300 };
-  let dpi = window.devicePixelRatio;
-
-  function startResize(event) {
-    isResizing = true;
-    side = event.target.dataset.side;
-    windowPosition = { x: window.screenX, y: window.screenY };
-    windowSize = { width: window.innerWidth, height: window.innerHeight };
-    window.addEventListener("mousemove", doResize);
-    window.addEventListener("mouseup", stopResize);
-  }
-
-  function stopResize() {
-    isResizing = false;
-    side = null;
-    windowSize = { width: 0, height: 0 };
-    windowPosition = { x: 0, y: 0 };
-    window.removeEventListener("mousemove", doResize);
-    window.removeEventListener("mouseup", stopResize);
-  }
-
-  function doResize(event) {
-    if (!isResizing) return;
-    let width = windowSize.width;
-    let height = windowSize.height;
-
-    switch (side) {
-      case "left":
-        width = windowPosition.x + windowSize.width - event.screenX;
-        break;
-      case "right":
-        width = event.screenX - windowPosition.x;
-        break;
-      case "top":
-        height = windowPosition.y + windowSize.height - event.screenY;
-        break;
-      case "bottom":
-        height = event.screenY - windowPosition.y;
-        break;
-      case "handle":
-        width = event.screenX - windowPosition.x;
-        height = event.screenY - windowPosition.y;
-    }
-
-    width = Math.ceil(Math.max(width, minSize.width) * dpi);
-    height = Math.ceil(Math.max(height, minSize.height) * dpi);
-    pywebview.api.resize(width, height, side);
-  }
+  import { startResize } from "$lib/scripts/qi.windowScripts.svelte";
+  let { resizeable, draggable, resizeSides } = $props();
 </script>
 
 <div class="interaction">
   {#if resizeable}
-    {#each sides as side}
+    {#each resizeSides as side}
       <div
         class="resizer-{side}"
         data-side={side}
@@ -83,7 +31,8 @@
   .resizer-top,
   .resizer-right,
   .resizer-bottom,
-  .resizer-handle {
+  .resizer-bottom-right,
+  .resizer-bottom-left {
     pointer-events: auto;
     position: absolute;
     width: 0.4rem;
@@ -122,13 +71,22 @@
     bottom: 0;
     width: 100%;
   }
-  .resizer-handle {
+  .resizer-bottom-right{
     cursor: nw-resize;
     bottom: 0;
     right: 0;
     width: 1.75rem;
     height: 1.75rem;
     transform: translate(50%, 50%) rotate(45deg);
+    z-index: 700;
+  }
+  .resizer-bottom-left{
+    cursor: ne-resize;
+    bottom: 0;
+    left: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    transform: translate(-50%, 50%) rotate(45deg);
     z-index: 700;
   }
 </style>

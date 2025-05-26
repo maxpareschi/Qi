@@ -2,23 +2,21 @@
   import WindowTitleBar from "./WindowTitleBar.svelte";
   import WindowStatusBar from "./WindowStatusBar.svelte";
   import WindowInteraction from "./WindowInteraction.svelte";
-  let { windowSettings, children } = $props();
-
-  let isMaximized = $state(false);
+  let { windowState, windowFlags, children } = $props();
 </script>
 
 <div class="window">
-  {#if windowSettings.resizeable && !isMaximized}
-    <WindowInteraction {...windowSettings} />
+  {#if windowFlags.resizeable && !windowState.isMaximized}
+    <WindowInteraction {...windowState} {...windowFlags} />
   {/if}
-  {#if windowSettings.showTitlebar}
-    <WindowTitleBar {...windowSettings} bind:isMaximized={isMaximized} />
+  {#if windowFlags.showTitlebar}
+    <WindowTitleBar {...windowState} {...windowFlags} />
   {/if}
   <div class="window-content">
     {@render children()}
   </div>
-  {#if windowSettings.showStatusbar}
-    <WindowStatusBar {...windowSettings} />
+  {#if windowFlags.showStatusbar} 
+    <WindowStatusBar {...windowState} {...windowFlags} />
   {/if}
 </div>
 

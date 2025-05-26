@@ -45,3 +45,9 @@ export function initQiConnection() {
     );
   };
 }
+
+export function closeQiConnection() {
+  if (qiConnection.socket) {
+    qiConnection.socket.close();
+  }
+}

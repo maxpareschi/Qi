@@ -1,5 +1,5 @@
 <script>
-  import { qiConnection } from "$lib/stores/qi.connection.svelte";
+  import { qiConnection } from "$lib/scripts/qi.windowConnections.svelte";
   
   let windows = $state([]);
   let pingResponse = $state(null);

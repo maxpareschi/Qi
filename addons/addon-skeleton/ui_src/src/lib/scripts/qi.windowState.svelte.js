@@ -69,24 +69,43 @@ const fastAccessMenu = [
   },
 ];
 
-export const windowSettings = $state({
+export const windowFlags = $state({
+  resizeable: true,
+  resizeSides: [
+    "top",
+    "bottom",
+    "left",
+    "right",
+    "bottom-right",
+    "bottom-left",
+  ],
+  draggable: true,
   showTitlebar: true,
-
-  icon: `${assets}/icons/qi_64.png`,
-  //icon: "fa-solid fa-bars",
-  appMenu: appMenu,
-  appMenuStartOpened: false,
-  title: "Window Title",
-  fastAccessMenu: fastAccessMenu,
-
+  appMenuOpenedAtStart: false,
   showMinimize: true,
   showMaximize: true,
   showClose: true,
-
   showStatusbar: true,
+});
+
+export const windowState = $state({
+  // Window State: DO NOT CHANGE
+  isMoving: false,
+  isResizing: false,
+  isMaximized: false,
+  resizingSide: null,
+  dpi: window.devicePixelRatio,
+  mousePosition: { x: 0, y: 0 },
+  windowSize: { width: 0, height: 0 },
+  windowPosition: { x: 0, y: 0 },
+  minSize: { width: 400, height: 300 },
+
+  title: "Window Title",
+  icon: `${assets}/icons/qi_64.png`, // or icon: "fa-solid fa-bars"
+
+  appMenu: appMenu,
+  fastAccessMenu: fastAccessMenu,
+
   statusMessageMain: "Test Message Main",
   statusMessageSub: "Test Message Sub",
-
-  resizeable: true,
-  draggable: true,
 });

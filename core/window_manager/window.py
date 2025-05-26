@@ -182,14 +182,23 @@ class QiWindow:
 
         anchors = FixPoint.WEST | FixPoint.NORTH
 
-        if edge == "top":
-            anchors = FixPoint.SOUTH
-        elif edge == "bottom":
-            anchors = FixPoint.NORTH
-        elif edge == "left":
-            anchors = FixPoint.EAST
-        elif edge == "right":
-            anchors = FixPoint.WEST
+        match edge:
+            case "top":
+                anchors = FixPoint.SOUTH
+            case "bottom":
+                anchors = FixPoint.NORTH
+            case "left":
+                anchors = FixPoint.EAST
+            case "right":
+                anchors = FixPoint.WEST
+            case "bottom-right":
+                anchors = FixPoint.WEST | FixPoint.NORTH
+            case "bottom-left":
+                anchors = FixPoint.EAST | FixPoint.NORTH
+            case "top-right":
+                anchors = FixPoint.WEST | FixPoint.SOUTH
+            case "top-left":
+                anchors = FixPoint.EAST | FixPoint.SOUTH
 
         self.window.resize(width, height, anchors)
 
