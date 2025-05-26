@@ -1,4 +1,3 @@
-import os
 import threading
 
 import uvicorn
@@ -11,9 +10,6 @@ def run_server(
     ssl_cert_path: str | None = None,
     dev_mode: bool = True,
 ) -> threading.Thread:
-    host = os.getenv("QI_LOCAL_SERVER", host)
-    port = int(os.getenv("QI_LOCAL_PORT", port))
-
     if host.startswith("http"):
         raise ValueError("Host must specify only address without protocol.")
     if ":" in host:

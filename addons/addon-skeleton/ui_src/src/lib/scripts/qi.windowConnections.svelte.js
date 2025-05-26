@@ -41,9 +41,12 @@ export const initQiConnection = () => {
     payload.addon = qiConnection.addon;
     qiConnection.socket.send(
       JSON.stringify({
+        message_id: crypto.randomUUID(),
         topic,
-        payload,
-        session: qiConnection.session,
+        context: {},
+        sender: { session_id: qiConnection.session },
+        reply_to: null,
+        payload: payload,
       })
     );
   };

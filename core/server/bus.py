@@ -56,10 +56,10 @@ class QiEnvelope(BaseModel):
 
     message_id: UUID = Field(default_factory=uuid.uuid4)
     topic: str
+    payload: dict[str, Any] = {}
     context: dict[str, Any] = {}
-    sender: dict[str, Any]
+    sender: dict[str, Any] = {}
     reply_to: Optional[UUID] = None
-    payload: Any
 
 
 # --------------------------------------------------------------------------- #
@@ -76,7 +76,7 @@ class _Singleton(type):
         return cls._inst
 
 
-Handler: TypeAlias = Callable[[QiEnvelope, str], Awaitable | None]
+Handler: TypeAlias = Callable[[QiEnvelope], Awaitable | None]
 
 # --------------------------------------------------------------------------- #
 #                                 EVENT BUS                                   #
@@ -176,6 +176,9 @@ class QiEventBus(metaclass=_Singleton):
     # ------------------------------- INTERNAL ------------------------------ #
 
     async def _dispatch(self, env: QiEnvelope) -> None:
+        log.debug(
+            f"Dispatching message: topic={env.topic}, handlers_found={len(self._handlers.get(env.topic, ()))}"
+        )
         for fn in list(self._handlers.get(env.topic, ())):
             await call_or_await(
                 fn(env, env.sender.get("session_id", env.context.get("session_id", "")))

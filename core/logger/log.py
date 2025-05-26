@@ -100,12 +100,12 @@ def get_logger(name: str | None = None, level: int | None = None) -> logging.Log
     }
 
     if level is not None:
-        qi_log_level = level
-    if qi_dev_mode:
-        qi_log_level = "DEBUG"
+        set_level(level)
+    elif qi_dev_mode:
+        set_level(DEBUG)
+    else:
+        set_level(level_map[qi_log_level])
 
-    level = level_map[qi_log_level]
-    set_level(level)
     return logging.getLogger(name)
 
 

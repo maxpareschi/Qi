@@ -17,13 +17,13 @@ class QiDevProxyMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         if dev_servers := json.loads(os.getenv("QI_ADDONS", "{}")):
-            for addon_name, server_url in dev_servers.items():
+            for addon_name, addon_data in dev_servers.items():
                 log.debug(
-                    f'Name: "{addon_name}", URL: "{server_url}", REQUEST: "{request.url.path}", PARAMS: "{request.query_params}"'
+                    f'Name: "{addon_name}", URL: "{addon_data["url"]}", REQUEST: "{request.url.path}", PARAMS: "{request.query_params}"'
                 )
                 if request.url.path.startswith(f"/{addon_name}"):
                     return RedirectResponse(
-                        url=f"{server_url}/{addon_name}?{request.query_params}"
+                        url=f"{addon_data['url']}/{addon_name}?{request.query_params}"
                     )
 
         return await call_next(request)

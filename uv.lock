@@ -713,6 +713,7 @@ dependencies = [
     { name = "pystray" },
     { name = "pywebview" },
     { name = "pyyaml" },
+    { name = "typer" },
     { name = "watchdog" },
 ]
 
@@ -725,6 +726,7 @@ requires-dist = [
     { name = "pystray", specifier = ">=0.19.5" },
     { name = "pywebview", specifier = ">=5.4" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "typer", specifier = ">=0.15.3" },
     { name = "watchdog", specifier = ">=6.0.0" },
 ]
 
