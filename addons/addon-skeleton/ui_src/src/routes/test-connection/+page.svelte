@@ -125,13 +125,13 @@
     <h3>Messages ({messages.length})</h3>
     <div class="messages-list">
       {#each messages.slice().reverse() as message}
-        <div class="message message-{message.type}">
-          <div class="message-header">
-            <span class="message-type">{message.type.toUpperCase()}</span>
-            <span class="message-topic">{message.topic}</span>
-            <span class="message-time">{new Date(message.timestamp).toLocaleTimeString()}</span>
+        <div class="message {message.type === 'sent' ? 'message-sent' : 'message-received'}">
+          <div class="msg-header">
+            <span class="msg-type">{message.type.toUpperCase()}</span>
+            <span class="msg-topic">{message.topic}</span>
+            <span class="msg-time">{new Date(message.timestamp).toLocaleTimeString()}</span>
           </div>
-          <div class="message-payload">
+          <div class="msg-payload">
             <pre>{JSON.stringify(message.payload, null, 2)}</pre>
           </div>
         </div>
@@ -188,10 +188,21 @@
     padding: 1rem;
     border-radius: 0.5rem;
     background-color: var(--bg-color-darker);
-    border-left: 0.25rem solid var(--accent-color);
   }
 
-  .message-header {
+  .message-received {
+    width: 90%;
+    margin-right: auto;
+    border-left: 0.3rem solid var(--success-color);
+  }
+
+  .message-sent {
+    width: 90%;
+    margin-left: auto;
+    border-right: 0.3rem solid var(--accent-color);
+  }
+
+  .msg-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -199,23 +210,23 @@
     font-size: 0.9rem;
   }
   
-  .message-type {
+  .msg-type {
     font-weight: bold;
     text-transform: uppercase;
   }
   
-  .message-topic {
+  .msg-topic {
     font-family: monospace;
     padding: 0.2rem 0.4rem;
     border-radius: 0.2rem;
   }
   
-  .message-time {
+  .msg-time {
     opacity: 0.7;
     font-size: 0.8rem;
   }
   
-  .message-payload pre {
+  .msg-payload pre {
     margin: 0;
     font-size: 0.85rem;
     padding: 0.5rem;
