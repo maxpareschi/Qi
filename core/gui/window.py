@@ -23,6 +23,8 @@ class QiWindow:
         url: str,
         addon: str,
         session: str,
+        window_uuid: str = None,
+        on_close_callback: Callable[[str], None] = None,
         **kwargs: Any,
     ):
         """Initialize a new window.
@@ -30,6 +32,7 @@ class QiWindow:
             url: The URL to load in the window.
             addon: The addon that the window belongs to.
             session: The session that the window belongs to.
+            window_uuid: Pre-generated window UUID (optional, will generate if not provided).
             **kwargs: Additional keyword arguments to pass to the webview.Window constructor.
         """
 
@@ -40,11 +43,12 @@ class QiWindow:
             "hidden": True,
         }
 
-        self.uuid: str = str(uuid.uuid4())
+        self.uuid: str = window_uuid if window_uuid else str(uuid.uuid4())
         self.url: str = url
         self.addon: str = addon
         self.session: str = session
         self.window: webview.Window | None = None
+        self._on_close_callback: Callable[[str], None] = on_close_callback
 
         self._api_methods: list[Callable] = [
             method
@@ -79,6 +83,7 @@ class QiWindow:
 
         self.window = webview.create_window(title, **launch_kwargs)
         self.window.events.loaded += self._on_loaded
+        self.window.events.closed += self._on_closed
         for method in self._api_methods:
             self.window.expose(method)
 
@@ -89,6 +94,14 @@ class QiWindow:
         self.window.events.loaded -= self._on_loaded
         self.show()
         self.state["hidden"] = False
+
+    def _on_closed(self) -> None:
+        """Event handler for when the window is closed by the user.
+        Notifies the window manager to clean up tracking."""
+
+        log.debug(f"Window {self.uuid[:8]}... closed by user")
+        if self._on_close_callback:
+            self._on_close_callback(self.uuid)
 
     def get_session(self) -> str:
         """Get the session of the window.

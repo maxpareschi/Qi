@@ -15,6 +15,7 @@
 
   --bg-color: #151515;
   --bg-color-darker: #0a0a0a;
+  --bg-color-lighter: #1a1a1a;
 
   --text-color: #999;
   --text-color-hover: #ddd;
@@ -29,9 +30,9 @@
   --base-color-hover: #252525;
   --base-color-active: #353535;
 
-  --accent-color: #39b;
-  --accent-color-hover: #5df;
-  --accent-color-active: #4bd;
+  --accent-color: #38d;
+  --accent-color-hover: #5af;
+  --accent-color-active: #49e;
 
   --error-color: #b33;
   --error-color-hover: #f55;

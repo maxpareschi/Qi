@@ -1,6 +1,6 @@
 from core.gui.bindings import register_window_manager_handlers
+from core.gui.manager import QiWindowManager
 from core.gui.window import QiWindow
-from core.gui.window_manager import QiWindowManager
 
 
 def setup_window_manager() -> QiWindowManager:
@@ -16,8 +16,13 @@ def setup_window_manager() -> QiWindowManager:
     return window_manager
 
 
+# Singleton instance will be created lazily to avoid circular imports
+window_manager = None
+
+
 __all__ = (
     "QiWindowManager",
     "QiWindow",
     "setup_window_manager",
+    "window_manager",
 )

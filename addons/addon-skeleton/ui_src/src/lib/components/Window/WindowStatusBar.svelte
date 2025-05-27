@@ -8,8 +8,8 @@
 
   $effect(() => {
     statusMessageMain = `${qiConnection.session} - ${qiConnection.addon}`;
-    statusMessageSub = qiConnection.socket.url;
-    socketState = qiConnection.socket.readyState === WebSocket.OPEN;
+    statusMessageSub = qiConnection.socket?.url || "No connection";
+    socketState = qiConnection.connected;
   });
 </script>
 

@@ -1,123 +1,194 @@
 <script>
+  import { onMount, onDestroy } from "svelte";
   import { qiConnection } from "$lib/scripts/qi.windowConnections.svelte";
-  
+
   let windows = $state([]);
   let pingResponse = $state(null);
-  
-  // Setup message handler when socket becomes available
-  $effect(() => {
-    if (qiConnection.socket) {
-      qiConnection.socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log("Received message from server: ", data);
-        
-        // Handle different message types
-        if (data.topic === "wm.window.listed") {
-          console.log("Got window list:", data.payload.windows);
-          windows = data.payload.windows || [];
-        } 
-        else if (data.topic === "wm.window.opened") {
-          console.log("Window opened:", data.payload);
-          // Refresh the window list
-          qiConnection.send("wm.window.list_all", {});
-        }
-        else if (data.topic === "wm.window.closed") {
-          console.log("Window closed:", data.payload);
-          // Refresh the window list
-          qiConnection.send("wm.window.list_all", {});
-        }
-        else if (data.topic === "test.pong") {
-          console.log("Got ping response:", data.payload);
-          pingResponse = data.payload;
-        }
-      };
-    }
+
+  // Store unsubscribe functions for cleanup
+  let unsubscribeFunctions = [];
+
+  onMount(() => {
+    // Subscribe to different message types using the new topic system
+    unsubscribeFunctions.push(
+      qiConnection.on("wm.window.listed", (envelope) => {
+        console.log("Got window list:", envelope.payload.windows);
+        windows = envelope.payload.windows || [];
+      })
+    );
+
+    unsubscribeFunctions.push(
+      qiConnection.on("wm.window.opened", (envelope) => {
+        console.log("Window opened:", envelope.payload);
+        // Refresh the window list
+        qiConnection.emit("wm.window.list_all", { payload: {} });
+      })
+    );
+
+    unsubscribeFunctions.push(
+      qiConnection.on("wm.window.closed", (envelope) => {
+        console.log("Window closed:", envelope.payload);
+        // Refresh the window list
+        qiConnection.emit("wm.window.list_all", { payload: {} });
+      })
+    );
+
+    unsubscribeFunctions.push(
+      qiConnection.on("test.pong", (envelope) => {
+        console.log("Got ping response:", envelope.payload);
+        pingResponse = envelope.payload;
+      })
+    );
+  });
+
+  onDestroy(() => {
+    // Clean up subscriptions
+    unsubscribeFunctions.forEach((unsub) => unsub());
+    unsubscribeFunctions = [];
   });
 
   const createWindow = () => {
-    qiConnection.send("wm.window.open", {});
+    qiConnection.emit("wm.window.open", { payload: {} });
   };
-  
+
   const listWindows = () => {
-    qiConnection.send("wm.window.list_all", {});
+    qiConnection.emit("wm.window.list_all", { payload: {} });
   };
 
   const closeWindow = (window_uuid) => {
-    qiConnection.send("wm.window.close", { window_uuid });
+    qiConnection.emit("wm.window.close", { payload: { window_uuid } });
   };
-  
+
   const testPing = () => {
-    qiConnection.send("test.ping", { timestamp: new Date().toISOString() });
+    qiConnection.emit("test.ping", {
+      payload: { timestamp: new Date().toISOString() },
+    });
   };
-  
+
   const debugServer = () => {
-    qiConnection.send("debug.server", { timestamp: new Date().toISOString() });
+    qiConnection.emit("debug.server", {
+      payload: { timestamp: new Date().toISOString() },
+    });
   };
 </script>
 
+<button onclick={() => (location.href = "/addon-skeleton")}
+  ><i class="fa-solid fa-arrow-left"></i> Back to Home
+</button>
+
 <div class="container">
-  <button onclick={() => (location.href = "/addon-skeleton")}>
-    <i class="fa-solid fa-arrow-left"></i>
-    Back to home
-  </button>
-  <h2>Demo addon-skeleton: websocket and window management.</h2>
-  <div class="buttons">
-    <button class="border" onclick={createWindow}>Create window</button>
-    <button class="border" onclick={listWindows}>List windows</button>
+  <h1 style="margin-bottom: 2rem;">Qi Window Manager Demo</h1>
+
+  <div class="info">
+    <h3>Connection Info</h3>
+    <div class="info-grid">
+      <div><strong>Session:</strong> {qiConnection.session}</div>
+      <div
+        ><strong>Window UUID:</strong>
+        {qiConnection.window_uuid?.slice(0, 8)}...</div
+      >
+      <div><strong>Addon:</strong> {qiConnection.addon}</div>
+      <div
+        ><strong>Connected:</strong> {qiConnection.connected ? "✅" : "❌"}</div
+      >
+    </div>
+    <details>
+      <summary>Full Context</summary>
+      <pre>{JSON.stringify(qiConnection.getConnectionInfo(), null, 2)}</pre>
+    </details>
+  </div>
+
+  <div class="controls">
+    <button class="border" onclick={createWindow}>Create Window</button>
+    <button class="border" onclick={listWindows}>List Windows</button>
     <button class="border" onclick={testPing}>Test Ping</button>
     <button class="border" onclick={debugServer}>Debug Server</button>
   </div>
 
   {#if pingResponse}
     <div class="ping-response">
-      <p>Ping response: {JSON.stringify(pingResponse)}</p>
+      <h3>Last Ping Response:</h3>
+      <pre>{JSON.stringify(pingResponse, null, 2)}</pre>
     </div>
   {/if}
 
-  <ul>
+  <div class="windows-list">
+    <h3>Active Windows ({windows.length})</h3>
     {#each windows as window}
-      <li>
-        <p>{window.window_uuid} - {window.addon}</p>
-        <button class="button-icon" onclick={() => closeWindow(window.window_uuid)}>
-          <i class="fa-solid fa-circle-xmark"></i>
-          Close
-        </button>
-      </li>
+      <div class="window-item">
+        <span>{window.window_uuid} - {window.addon}</span>
+        <button onclick={() => closeWindow(window.window_uuid)}>Close</button>
+      </div>
+    {:else}
+      <p
+        >No windows found. Click "List Windows" to refresh or "Create Window" to
+        add one.</p
+      >
     {/each}
-  </ul>
+  </div>
 </div>
 
 <style>
-  ul {
-    list-style: none;
-    padding: 2rem;
-  }
-
-  li {
-    display: flex;
-    justify-content: flex-start;
-    align-items: center;
-  }
-
   .container {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: flex-start;
-    gap: 2rem;
+    padding: 2rem;
+    margin: 0 auto;
   }
 
-  .buttons {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 1rem;
-  }
-  
-  .ping-response {
-    background-color: #f0f0f0;
+  .info,
+  .controls,
+  .ping-response,
+  .windows-list {
+    margin-bottom: 2rem;
     padding: 1rem;
+    border: 1px solid var(--lining-color);
     border-radius: 0.5rem;
+  }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .info-grid > div {
+    padding: 0.5rem;
+    background: var(--base-color-light);
+    border-radius: 4px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  button {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 0.5rem;
+  }
+
+  .window-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    margin: 0.5rem 0;
+    background: var(--base-color-light);
+    border-radius: 4px;
+  }
+
+  pre {
+    background: var(--base-color-dark);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.9rem;
+  }
+
+  h1,
+  h3 {
+    color: var(--text-color-hover);
   }
 </style>

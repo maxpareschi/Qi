@@ -13,13 +13,23 @@ from core.server.middleware import (
 log = logger.get_logger(__name__)
 qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
-
 qi_server = FastAPI()
 
 
 @qi_server.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket, session: str):
-    await qi_bus.accept(ws, session)
+async def websocket_endpoint(
+    ws: WebSocket, session: str = None, window_uuid: str = None
+):
+    # Extract session and window_uuid from query parameters if not provided as path params
+    if session is None:
+        session = ws.query_params.get("session", "unknown")
+    if window_uuid is None:
+        window_uuid = ws.query_params.get("window_uuid")
+
+    log.debug(
+        f"🌐 WebSocket endpoint: session={session}, window_uuid={window_uuid[:8] if window_uuid else 'None'}..."
+    )
+    await qi_bus.connect(ws, session, window_uuid)
 
 
 if qi_dev_mode:

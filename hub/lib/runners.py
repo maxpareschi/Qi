@@ -21,7 +21,7 @@ def run_server(
         kwargs={
             "host": host,
             "port": port,
-            "log_level": "debug" if dev_mode else "info",
+            "log_level": "info" if dev_mode else "warning",
             "ssl_keyfile": ssl_key_path,
             "ssl_certfile": ssl_cert_path,
             "workers": 1,

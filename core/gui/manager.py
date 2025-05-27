@@ -1,6 +1,7 @@
 import asyncio
 import os
 import threading
+import uuid
 from typing import Any
 
 import webview
@@ -9,6 +10,7 @@ from core import logger
 from core.gui.window import QiWindow
 
 log = logger.get_logger(__name__)
+
 qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
@@ -26,6 +28,13 @@ class QiWindowManager:
         self._windows: dict[str, QiWindow] = {}
         self._gui_thread = threading.get_ident()
 
+    def _on_window_closed(self, window_uuid: str) -> None:
+        """Callback for when a window is closed by the user.
+        Cleans up the window tracking."""
+
+        log.debug(f"Cleaning up window {window_uuid[:8]}... from manager")
+        self._windows.pop(window_uuid, None)
+
     def create_window(
         self,
         *,
@@ -42,9 +51,18 @@ class QiWindowManager:
             The UUID of the window.
         """
 
-        url = f"http://{os.getenv('QI_LOCAL_SERVER')}:{os.getenv('QI_LOCAL_PORT')}/{addon}?session={session}"
+        window_uuid = str(uuid.uuid4())
+
+        url = f"http://{os.getenv('QI_LOCAL_SERVER')}:{os.getenv('QI_LOCAL_PORT')}/{addon}?session={session}&window_uuid={window_uuid}"
         log.debug(f"Creating window for {url}")
-        window = QiWindow(url, addon=addon, session=session, **kwargs)
+        window = QiWindow(
+            url,
+            addon=addon,
+            session=session,
+            window_uuid=window_uuid,
+            on_close_callback=self._on_window_closed,
+            **kwargs,
+        )
         self._windows[window.uuid] = window
         log.debug(f"Activated webview: {self._windows[window.uuid]}")
         return window.uuid
@@ -54,8 +72,9 @@ class QiWindowManager:
         Returns:
             A list of dictionaries containing the window UUID and addon.
         """
-        log.debug(f"Listing all windows: {self._windows}")
-        log.debug(f"Listing all windows: {self._windows}")
+        log.debug(
+            f"Window manager tracking {len(self._windows)} windows: {list(self._windows.keys())}"
+        )
         return [
             {"window_uuid": window_uuid, "addon": window.addon}
             for window_uuid, window in self._windows.items()
@@ -116,7 +135,7 @@ class QiWindowManager:
         loop = asyncio.get_event_loop()
         return loop.call_soon_threadsafe(fn, *args)
 
-    def close(self, window_uuid: str) -> None:
+    def close(self, window_uuid: str) -> str | None:
         """Close a window.
         Args:
             window_uuid: The UUID of the window to close.
@@ -127,7 +146,8 @@ class QiWindowManager:
         win = self._windows.get(window_uuid, None)
         if win:
             win.close()
-            del self._windows[window_uuid]
+            # Don't delete here - let the close event callback handle cleanup
+            # to avoid race condition with _on_window_closed callback
             return window_uuid
         log.warning(f"Window {window_uuid} not found")
         return None

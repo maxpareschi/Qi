@@ -74,6 +74,15 @@ handler = logging.StreamHandler()
 handler.setFormatter(QiCustomFormatter())
 handler.setLevel(DEBUG)
 
+# Ensure UTF-8 encoding for emoji support
+if hasattr(handler.stream, "reconfigure"):
+    handler.stream.reconfigure(encoding="utf-8")
+elif hasattr(handler.stream, "buffer"):
+    # For older Python versions
+    import io
+
+    handler.stream = io.TextIOWrapper(handler.stream.buffer, encoding="utf-8")
+
 root_logger = logging.getLogger()
 root_logger.addHandler(handler)
 root_logger.setLevel(DEBUG)
