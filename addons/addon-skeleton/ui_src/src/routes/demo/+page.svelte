@@ -55,8 +55,8 @@
     qiConnection.emit("wm.window.list_all", { payload: {} });
   };
 
-  const closeWindow = (window_uuid) => {
-    qiConnection.emit("wm.window.close", { payload: { window_uuid } });
+  const closeWindow = (window_id) => {
+    qiConnection.emit("wm.window.close", { payload: { window_id } });
   };
 
   const testPing = () => {
@@ -82,10 +82,10 @@
   <div class="info">
     <h3>Connection Info</h3>
     <div class="info-grid">
-      <div><strong>Session:</strong> {qiConnection.session}</div>
+      <div><strong>Session ID:</strong> {qiConnection.session_id}</div>
       <div
-        ><strong>Window UUID:</strong>
-        {qiConnection.window_uuid?.slice(0, 8)}...</div
+        ><strong>Window ID:</strong>
+        {qiConnection.window_id?.slice(0, 8)}...</div
       >
       <div><strong>Addon:</strong> {qiConnection.addon}</div>
       <div
@@ -116,8 +116,8 @@
     <h3>Active Windows ({windows.length})</h3>
     {#each windows as window}
       <div class="window-item">
-        <span>{window.window_uuid} - {window.addon}</span>
-        <button onclick={() => closeWindow(window.window_uuid)}>Close</button>
+        <span>{window.window_id} - {window.addon}</span>
+        <button onclick={() => closeWindow(window.window_id)}>Close</button>
       </div>
     {:else}
       <p

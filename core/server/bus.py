@@ -9,18 +9,16 @@ Simple async event bus + WebSocket connection manager for Qi.
 • Direct WebSocket handling without complex pump system.
 """
 
-from __future__ import annotations
-
-import inspect
+import asyncio
+import json
 import os
 import time
 import uuid
 from collections import defaultdict
 from typing import Any, Awaitable, Callable, Optional, TypeAlias
-from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from core import logger
 
@@ -37,41 +35,42 @@ qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
 class QiContext(BaseModel):
+    """Business context for pipeline/project decisions."""
+
     project: Optional[str] = None
     entity: Optional[str] = None
     task: Optional[str] = None
-    session: Optional[str] = None
-    window_uuid: Optional[str] = None  # Identifies specific window within session
-
-    @field_validator("window_uuid", mode="before")
-    @classmethod
-    def validate_window_uuid(cls, v):
-        """Handle window_uuid validation - convert invalid values to None."""
-        if v is None:
-            return None
-        if v == {} or v == "" or v == []:
-            return None
-        if isinstance(v, dict):
-            log.warning(f"window_uuid received as dict: {v}, converting to None")
-            return None
-        if not isinstance(v, str):
-            log.warning(f"window_uuid received as {type(v)}: {v}, converting to None")
-            return None
-        return v
+    # Extra context can be added as needed
 
     @classmethod
     def from_env(cls) -> "QiContext":
         return cls(
-            project=os.getenv("QI_PROJECT"),
-            entity=os.getenv("QI_ENTITY"),
-            task=os.getenv("QI_TASK"),
-            session=os.getenv("QI_SESSION"),
-            window_uuid=os.getenv("QI_WINDOW_UUID"),  # Usually set by client
+            project=os.getenv("QI_PROJECT", None),
+            entity=os.getenv("QI_ENTITY", None),
+            task=os.getenv("QI_TASK", None),
         )
 
 
+class QiUser(BaseModel):
+    """User information for auth and user-specific routing."""
+
+    id: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    # Future: auth tokens, permissions, etc.
+
+
+class QiSource(BaseModel):
+    """Source information for message routing."""
+
+    addon: str
+    session_id: str
+    window_id: Optional[str] = None
+    user: Optional[QiUser] = None
+
+
 class QiEnvelope(BaseModel):
-    """Canonical message wrapper."""
+    """Canonical message wrapper with separated concerns."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -80,25 +79,14 @@ class QiEnvelope(BaseModel):
         strict=qi_dev_mode,
     )
 
-    message_id: UUID = Field(default_factory=uuid.uuid4)
+    message_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     topic: str = Field(default="")
     payload: dict[str, Any] = Field(default_factory=dict)
     context: Optional[QiContext] = Field(default=None)
-    reply_to: Optional[UUID] = Field(default=None)
+    source: Optional[QiSource] = Field(default=None)
+    user: Optional[QiUser] = Field(default=None)
+    reply_to: Optional[str] = Field(default=None)
     timestamp: float = Field(default_factory=time.time)
-
-    @field_validator("message_id", "reply_to", mode="before")
-    @classmethod
-    def validate_uuid_fields(cls, v):
-        """Convert string UUIDs to UUID objects for JavaScript compatibility."""
-        if v is None:
-            return v
-        if isinstance(v, str):
-            try:
-                return UUID(v)
-            except ValueError:
-                raise ValueError(f"Invalid UUID string: {v}")
-        return v
 
 
 # --------------------------------------------------------------------------- #
@@ -114,6 +102,10 @@ class _Singleton(type):
             cls._inst = super().__call__(*a, **kw)
         return cls._inst
 
+    def reset(cls):
+        """Reset singleton for testing."""
+        cls._inst = None
+
 
 Handler: TypeAlias = Callable[[QiEnvelope], Awaitable | None]
 
@@ -123,23 +115,24 @@ Handler: TypeAlias = Callable[[QiEnvelope], Awaitable | None]
 
 
 class QiEventBus(metaclass=_Singleton):
-    """Simple event bus for routing envelopes."""
+    """Singleton event bus for inter-addon communication."""
 
     def __init__(self) -> None:
         self._handlers: dict[str, set[Handler]] = defaultdict(set)
         self._sessions: dict[str, WebSocket] = {}
-        # Track windows within sessions: {session: {window_uuid: WebSocket}}
+        # Track windows within sessions: {session_id: {window_id: WebSocket}}
         self._windows: dict[str, dict[str, WebSocket]] = defaultdict(dict)
-        self._message_registry: dict[UUID, QiEnvelope] = {}
+        self._message_registry: dict[str, QiEnvelope] = {}
+        self._reply_routes: dict[str, tuple[str, Optional[str]]] = {}
+        self._connections: dict[str, dict[str, WebSocket]] = {}
+        self._session_to_addon: dict[str, str] = {}
 
     # ------------------------------------------------------------------ API #
 
     def list_handlers(self) -> None:
-        """List all registered handlers."""
+        """List all registered handlers for debugging."""
         for topic, handlers in self._handlers.items():
-            log.debug(
-                f"Handlers for topic: '{topic}' : {[handler.__name__ for handler in handlers]}"
-            )
+            log.info(f"Topic '{topic}': {len(handlers)} handlers")
 
     def on(self, topic: str) -> Callable[[Handler], Handler]:
         """Register a handler for a topic."""
@@ -153,61 +146,68 @@ class QiEventBus(metaclass=_Singleton):
         return decorator
 
     async def connect(
-        self, ws: WebSocket, session: str, window_uuid: str = None
+        self, ws: WebSocket, session_id: str, window_id: str = None
     ) -> None:
-        """Connect a WebSocket session with optional window tracking."""
-        if window_uuid:
-            log.info(f"🔌 Connected window {window_uuid[:8]}... in session {session}")
-        else:
-            log.info(f"🔌 Connected session {session}")
-
+        """Register a WebSocket connection."""
         await ws.accept()
-        self._sessions[session] = ws
 
-        # Track window if window_uuid provided
-        if window_uuid:
-            self._windows[session][window_uuid] = ws
+        # Initialize session storage if needed
+        if session_id not in self._connections:
+            self._connections[session_id] = {}
 
-        # Handle incoming messages
+        # Store connection with window_id as key
+        window_key = window_id or "default"
+        self._connections[session_id][window_key] = ws
+
+        # Auto-detect addon from connection (if not already known)
+        if session_id not in self._session_to_addon:
+            # Try to detect addon from WebSocket headers or URL
+            # For now, we'll wait for the first message to determine addon
+            pass
+
+        log.info(
+            f"WebSocket connected: session={session_id[:8]}..., window={window_key[:8] if window_key != 'default' else 'default'}"
+        )
+
         try:
             while True:
-                try:
-                    data = await ws.receive_json()
-                    if data == {"ping": True}:
-                        await ws.send_json({"pong": True})
-                        continue
+                data = await ws.receive_text()
+                envelope_data = json.loads(data) if isinstance(data, str) else data
+                envelope = QiEnvelope.model_validate(envelope_data)
 
-                    # Validate and dispatch message
-                    try:
-                        envelope = QiEnvelope.model_validate(data)
-                        self._message_registry[envelope.message_id] = envelope
-                        await self._dispatch(envelope, from_client=True)
-                    except ValidationError as e:
-                        log.error(f"Invalid message from {session}: {e}")
-                        await ws.send_json(
-                            {"error": "validation_error", "details": str(e)}
-                        )
+                # Auto-detect addon from first message if not known
+                if session_id not in self._session_to_addon and envelope.source:
+                    self._session_to_addon[session_id] = envelope.source.addon
+                    log.info(
+                        f"Auto-detected addon '{envelope.source.addon}' for session {session_id[:8]}..."
+                    )
 
-                except WebSocketDisconnect:
-                    break
-                except Exception as e:
-                    log.error(f"Error handling message from {session}: {e}")
-                    break
+                # Store reply route for this message
+                if envelope.source:
+                    self._reply_routes[str(envelope.message_id)] = (
+                        session_id,
+                        window_id,
+                    )
 
-        finally:
-            if window_uuid:
-                log.info(f"🔌 Disconnected window {window_uuid[:8]}...")
-            else:
-                log.info(f"🔌 Disconnected session {session}")
+                await self._dispatch(envelope, from_client=True)
 
-            self._sessions.pop(session, None)
+        except WebSocketDisconnect:
+            # Clean up connection
+            if (
+                session_id in self._connections
+                and window_key in self._connections[session_id]
+            ):
+                del self._connections[session_id][window_key]
+                if not self._connections[
+                    session_id
+                ]:  # No more windows for this session
+                    del self._connections[session_id]
+                    if session_id in self._session_to_addon:
+                        del self._session_to_addon[session_id]
 
-            # Remove window tracking
-            if window_uuid and session in self._windows:
-                self._windows[session].pop(window_uuid, None)
-                # Clean up empty session entries
-                if not self._windows[session]:
-                    del self._windows[session]
+            log.info(
+                f"WebSocket disconnected: session={session_id[:8]}..., window={window_key[:8] if window_key != 'default' else 'default'}"
+            )
 
     async def emit(
         self,
@@ -215,176 +215,152 @@ class QiEventBus(metaclass=_Singleton):
         *,
         payload: dict[str, Any] | None = None,
         context: dict[str, Any] | QiContext | None = None,
-        reply_to: UUID | str | None = None,
+        source: dict[str, Any] | QiSource | None = None,
+        user: dict[str, Any] | QiUser | None = None,
+        reply_to: str | None = None,
     ) -> None:
-        """Send a message."""
+        """Emit a message to the bus with intelligent auto-filling."""
 
-        # Handle context
+        # Convert context to QiContext if needed
         if isinstance(context, dict):
-            ctx = QiContext(**context)
+            context = QiContext.model_validate(context)
         elif context is None:
-            ctx = QiContext()
-        else:
-            ctx = context
+            context = QiContext.from_env()  # Auto-fill from environment
 
-        # Handle reply_to
-        reply_uuid = None
-        if reply_to is not None:
-            if isinstance(reply_to, str):
-                try:
-                    reply_uuid = UUID(reply_to)
-                except ValueError:
-                    log.warning(f"Invalid UUID for reply_to: {reply_to}")
-            else:
-                reply_uuid = reply_to
+        # Convert source to QiSource if needed
+        if isinstance(source, dict):
+            source = QiSource.model_validate(source)
+        # Note: source is often None for server-originated messages
 
-        # Auto-inherit context for replies
-        if reply_uuid and context is None:
-            original_msg = self._message_registry.get(reply_uuid)
-            if original_msg and original_msg.context:
-                ctx = QiContext(
-                    project=original_msg.context.project,
-                    entity=original_msg.context.entity,
-                    task=original_msg.context.task,
-                    session=original_msg.context.session,
-                    window_uuid=original_msg.context.window_uuid,
-                )
+        # Convert user to QiUser if needed
+        if isinstance(user, dict):
+            user = QiUser.model_validate(user)
 
         envelope = QiEnvelope(
             topic=topic,
-            context=ctx,
-            reply_to=reply_uuid,
             payload=payload or {},
+            context=context,
+            source=source,
+            user=user,
+            reply_to=reply_to,
         )
 
-        self._message_registry[envelope.message_id] = envelope
         await self._dispatch(envelope, from_client=False)
 
     # ------------------------------- INTERNAL ------------------------------ #
 
     async def _dispatch(self, envelope: QiEnvelope, from_client: bool = False) -> None:
-        """Dispatch message to handlers and/or WebSocket sessions."""
+        """Dispatch message to handlers and route as needed."""
 
-        # Dispatch to local handlers
-        handlers = self._handlers.get(envelope.topic, set())
-        if handlers:
-            log.debug(f"🚀 Dispatching {envelope.topic} to {len(handlers)} handlers")
-
-        for handler in handlers:
-            try:
+        # Always call local handlers first
+        if envelope.topic in self._handlers:
+            for handler in self._handlers[envelope.topic]:
                 await self._call_handler(handler, envelope)
-            except Exception as e:
-                log.error(f"Handler {handler.__name__} failed: {e}")
 
-        # Only route to clients if this is a server-originated message or a reply
-        if not from_client:
-            # Route replies to original sender
-            if envelope.reply_to:
-                await self._route_reply(envelope)
-            else:
-                # Send to specific window or broadcast
-                await self._send_message(envelope)
+        # Route replies to original sender
+        if envelope.reply_to:
+            await self._route_reply(envelope)
+        # Otherwise broadcast normally (unless it's from a client)
+        elif not from_client:
+            await self._broadcast(envelope)
 
     async def _route_reply(self, envelope: QiEnvelope) -> None:
-        """Route reply to original sender with window-specific targeting."""
-        original_msg = self._message_registry.get(envelope.reply_to)
-        if (
-            not original_msg
-            or not original_msg.context
-            or not original_msg.context.session
-        ):
-            log.warning(f"Cannot route reply for {envelope.reply_to}")
-            return
+        """Route reply message to original sender."""
+        reply_to_str = str(envelope.reply_to)
 
-        target_session = original_msg.context.session
-        target_window_uuid = original_msg.context.window_uuid
+        if reply_to_str in self._reply_routes:
+            target_session_id, target_window_id = self._reply_routes[reply_to_str]
 
-        # Try window-specific routing first
-        if target_window_uuid and target_session in self._windows:
-            target_ws = self._windows[target_session].get(target_window_uuid)
-            if target_ws:
-                try:
-                    await target_ws.send_json(envelope.model_dump(mode="json"))
-                    log.debug(f"✅ Reply → {target_window_uuid[:8]}...")
-                    return
-                except Exception as e:
-                    log.error(
-                        f"Failed to send reply to {target_session}/{target_window_uuid}: {e}"
-                    )
-                    # Remove dead window connection
-                    self._windows[target_session].pop(target_window_uuid, None)
+            # Send to specific session/window
+            if target_session_id in self._connections:
+                session_connections = self._connections[target_session_id]
 
-        # Fallback to session-level routing
-        if target_session in self._sessions:
-            try:
-                await self._sessions[target_session].send_json(
-                    envelope.model_dump(mode="json")
+                if target_window_id and target_window_id in session_connections:
+                    # Send to specific window
+                    target_connections = {
+                        target_session_id: {
+                            target_window_id: session_connections[target_window_id]
+                        }
+                    }
+                    await self._send_message(envelope, target_connections)
+                else:
+                    # Send to all windows in session
+                    target_connections = {target_session_id: session_connections}
+                    await self._send_message(envelope, target_connections)
+
+                log.debug(
+                    f"Routed reply {envelope.topic} → session {target_session_id[:8]}..."
                 )
-                log.debug(f"✅ Reply → session {target_session}")
-            except Exception as e:
-                log.error(f"Failed to send reply to {target_session}: {e}")
-                # Remove dead session
-                self._sessions.pop(target_session, None)
+            else:
+                log.warning(f"Reply target session {target_session_id} not connected")
 
-    async def _send_message(self, envelope: QiEnvelope) -> None:
-        """Send message with window-specific targeting or broadcast."""
-        # Check if message has window targeting
-        if (
-            envelope.context
-            and envelope.context.window_uuid
-            and envelope.context.session
-        ):
-            target_session = envelope.context.session
-            target_window_uuid = envelope.context.window_uuid
+            # Clean up reply route after use
+            del self._reply_routes[reply_to_str]
+        else:
+            log.warning(f"No reply route found for message {reply_to_str}")
 
-            # Send to specific window
-            if target_session in self._windows:
-                target_ws = self._windows[target_session].get(target_window_uuid)
-                if target_ws:
+    async def _send_message(
+        self, envelope: QiEnvelope, connections: dict = None
+    ) -> None:
+        """Send message to specified connections or all connections."""
+        message = envelope.model_dump_json()
+        target_connections = connections or self._connections
+
+        disconnected = []
+
+        for session_id, session_connections in target_connections.items():
+            if isinstance(session_connections, dict):
+                # Multiple windows in session
+                for window_id, ws in session_connections.items():
                     try:
-                        await target_ws.send_json(envelope.model_dump(mode="json"))
-                        log.debug(f"📤 Message → {target_window_uuid[:8]}...")
-                        return
+                        await ws.send_text(message)
                     except Exception as e:
-                        log.error(
-                            f"Failed to send to {target_session}/{target_window_uuid}: {e}"
-                        )
-                        # Remove dead window connection
-                        self._windows[target_session].pop(target_window_uuid, None)
+                        log.warning(f"Failed to send to {session_id}:{window_id}: {e}")
+                        disconnected.append((session_id, window_id))
+            else:
+                # Single WebSocket connection (legacy)
+                try:
+                    await session_connections.send_text(message)
+                except Exception as e:
+                    log.warning(f"Failed to send to {session_id}: {e}")
+                    disconnected.append((session_id, None))
 
-            log.warning(
-                f"Window {target_window_uuid} in session {target_session} not found, broadcasting instead"
-            )
-
-        # Broadcast to all sessions if no window targeting or window not found
-        await self._broadcast(envelope)
+        # Clean up disconnected connections
+        for session_id, window_id in disconnected:
+            if session_id in self._connections:
+                if window_id:
+                    if window_id in self._connections[session_id]:
+                        del self._connections[session_id][window_id]
+                        if not self._connections[session_id]:
+                            del self._connections[session_id]
+                            if session_id in self._session_to_addon:
+                                del self._session_to_addon[session_id]
+                else:
+                    del self._connections[session_id]
+                    if session_id in self._session_to_addon:
+                        del self._session_to_addon[session_id]
 
     async def _broadcast(self, envelope: QiEnvelope) -> None:
-        """Broadcast message to all connected sessions."""
-        if not self._sessions:
+        """Broadcast message to all connected clients."""
+        if not self._connections:
+            log.debug(f"No connections for broadcast: {envelope.topic}")
             return
 
-        data = envelope.model_dump(mode="json")
-        dead_sessions = []
-
-        for session, ws in self._sessions.items():
-            try:
-                await ws.send_json(data)
-                log.debug(f"📤 Broadcast → {session}")
-            except Exception as e:
-                log.error(f"Failed to broadcast to {session}: {e}")
-                dead_sessions.append(session)
-
-        # Clean up dead sessions
-        for session in dead_sessions:
-            self._sessions.pop(session, None)
-            self._windows.pop(session, None)
+        await self._send_message(envelope)
+        total_connections = sum(len(conns) for conns in self._connections.values())
+        log.debug(f"Broadcasted {envelope.topic} to {total_connections} connections")
 
     async def _call_handler(self, handler: Handler, envelope: QiEnvelope) -> None:
-        """Call a handler function."""
-        result = handler(envelope)
-        if inspect.isawaitable(result):
-            await result
+        """Call a message handler safely."""
+        try:
+            if asyncio.iscoroutinefunction(handler):
+                await handler(envelope)
+            else:
+                # Run sync handler in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, handler, envelope)
+        except Exception as e:
+            log.error(f"Handler error for {envelope.topic}: {e}", exc_info=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -392,3 +368,22 @@ class QiEventBus(metaclass=_Singleton):
 # --------------------------------------------------------------------------- #
 
 qi_bus = QiEventBus()
+
+# ============================================================================
+# Helper functions
+# ============================================================================
+
+
+def get_session_id_from_source(envelope: QiEnvelope) -> str:
+    """Helper to extract session_id from envelope source."""
+    return envelope.source.session_id if envelope.source else "unknown"
+
+
+def get_addon_from_source(envelope: QiEnvelope) -> str:
+    """Helper to extract addon from envelope source."""
+    return envelope.source.addon if envelope.source else "unknown"
+
+
+def get_window_id_from_source(envelope: QiEnvelope) -> Optional[str]:
+    """Helper to extract window_id from envelope source."""
+    return envelope.source.window_id if envelope.source else None

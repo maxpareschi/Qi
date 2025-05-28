@@ -87,7 +87,7 @@
         <strong>Connected:</strong> {qiConnection.connected ? "✅ Yes" : "❌ No"}
       </div>
       <div>
-        <strong>Session:</strong> {qiConnection.session}
+        <strong>Session:</strong> {qiConnection.session_id}
       </div>
       <div>
         <strong>Addon:</strong> {qiConnection.addon}

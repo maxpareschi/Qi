@@ -13,17 +13,17 @@ log = logger.get_logger(__name__)
 class QiWindow:
     """A Wrapper for webview.Window that autoregisters javascript bridge
     methods to work on windows for a native like experience.
-    Needs an addon and a session. They could be made up and always stay
+    Needs an addon and a session_id. They could be made up and always stay
     the same for a single window - no dependency workflow.
-    Addon and session are useful in plugin contexts, especially in the
+    Addon and session_id are useful in plugin contexts, especially in the
     Qi framework."""
 
     def __init__(
         self,
         url: str,
         addon: str,
-        session: str,
-        window_uuid: str = None,
+        session_id: str,
+        window_id: str = None,
         on_close_callback: Callable[[str], None] = None,
         **kwargs: Any,
     ):
@@ -31,8 +31,8 @@ class QiWindow:
         Args:
             url: The URL to load in the window.
             addon: The addon that the window belongs to.
-            session: The session that the window belongs to.
-            window_uuid: Pre-generated window UUID (optional, will generate if not provided).
+            session_id: The session_id that the window belongs to.
+            window_id: Pre-generated window UUID (optional, will generate if not provided).
             **kwargs: Additional keyword arguments to pass to the webview.Window constructor.
         """
 
@@ -43,10 +43,10 @@ class QiWindow:
             "hidden": True,
         }
 
-        self.uuid: str = window_uuid if window_uuid else str(uuid.uuid4())
+        self.uuid: str = window_id if window_id else str(uuid.uuid4())
         self.url: str = url
         self.addon: str = addon
-        self.session: str = session
+        self.session_id: str = session_id
         self.window: webview.Window | None = None
         self._on_close_callback: Callable[[str], None] = on_close_callback
 
@@ -103,15 +103,15 @@ class QiWindow:
         if self._on_close_callback:
             self._on_close_callback(self.uuid)
 
-    def get_session(self) -> str:
-        """Get the session of the window.
+    def get_session_id(self) -> str:
+        """Get the session_id of the window.
         Returns:
-            The session of the window.
+            The session_id of the window.
         """
 
-        return self.session
+        return self.session_id
 
-    def get_window_uuid(self) -> str:
+    def get_window_id(self) -> str:
         """Get the UUID of the window.
         Returns:
             The UUID of the window.

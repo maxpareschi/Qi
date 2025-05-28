@@ -7,7 +7,7 @@
   let socketState = $state(false);
 
   $effect(() => {
-    statusMessageMain = `${qiConnection.session} - ${qiConnection.addon}`;
+    statusMessageMain = `${qiConnection.session_id} - ${qiConnection.addon}`;
     statusMessageSub = qiConnection.socket?.url || "No connection";
     socketState = qiConnection.connected;
   });

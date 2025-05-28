@@ -1,4 +1,3 @@
-import asyncio
 import os
 import threading
 import uuid
@@ -27,130 +26,180 @@ class QiWindowManager:
 
         self._windows: dict[str, QiWindow] = {}
         self._gui_thread = threading.get_ident()
+        self.dev_mode = qi_dev_mode
 
-    def _on_window_closed(self, window_uuid: str) -> None:
+    def _on_window_closed(self, window_id: str) -> None:
         """Callback for when a window is closed by the user.
         Cleans up the window tracking."""
 
-        log.debug(f"Cleaning up window {window_uuid[:8]}... from manager")
-        self._windows.pop(window_uuid, None)
+        log.debug(f"Cleaning up window {window_id[:8]}... from manager")
+        self._windows.pop(window_id, None)
 
     def create_window(
         self,
         *,
         addon: str,
-        session: str,
+        session_id: str,
         **kwargs: Any,
     ) -> str:
-        """Create a new window.
+        """
+        Create a new window for the given addon and session_id.
+
         Args:
-            addon: The addon to create the window for.
-            session: The session to create the window for.
-            **kwargs: Additional keyword arguments to pass to the window.
+            addon: The addon name (e.g., "addon-skeleton")
+            session_id: The session identifier
+            **kwargs: Additional window creation arguments
+
         Returns:
-            The UUID of the window.
+            The window_id (UUID string) of the created window
         """
 
-        window_uuid = str(uuid.uuid4())
+        window_id = str(uuid.uuid4())
+        log.info(
+            f"Creating window {window_id} for addon '{addon}' in session '{session_id}'"
+        )
 
-        url = f"http://{os.getenv('QI_LOCAL_SERVER')}:{os.getenv('QI_LOCAL_PORT')}/{addon}?session={session}&window_uuid={window_uuid}"
-        log.debug(f"Creating window for {url}")
+        # Determine the URL for the window
+        if self.dev_mode:
+            # Development mode: use Vite dev server
+            url = f"http://127.0.0.1:5173/{addon}?session_id={session_id}&window_id={window_id}"
+            log.debug(f"Development URL: {url}")
+        else:
+            # Production mode: use built static files
+            url = f"http://127.0.0.1:8000/{addon}?session_id={session_id}&window_id={window_id}"
+            log.debug(f"Production URL: {url}")
+
+        # Create the window instance
         window = QiWindow(
-            url,
+            url=url,
             addon=addon,
-            session=session,
-            window_uuid=window_uuid,
+            session_id=session_id,
+            window_id=window_id,
             on_close_callback=self._on_window_closed,
             **kwargs,
         )
-        self._windows[window.uuid] = window
-        log.debug(f"Activated webview: {self._windows[window.uuid]}")
-        return window.uuid
+
+        # Store in registry
+        self._windows[window_id] = window
+
+        log.info(f"Window {window_id} created successfully")
+        return window_id
 
     def list_all(self) -> list[dict]:
-        """List all windows.
-        Returns:
-            A list of dictionaries containing the window UUID and addon.
         """
-        log.debug(
-            f"Window manager tracking {len(self._windows)} windows: {list(self._windows.keys())}"
-        )
-        return [
-            {"window_uuid": window_uuid, "addon": window.addon}
-            for window_uuid, window in self._windows.items()
-        ]
+        List all active windows.
+
+        Returns:
+            List of window information dictionaries
+        """
+        windows = []
+        for window_id, window in self._windows.items():
+            windows.append(
+                {
+                    "window_id": window_id,
+                    "addon": window.addon,
+                    "session_id": window.session_id,
+                }
+            )
+        return windows
 
     def list_by_addon(self, addon: str) -> list[dict]:
-        """List all windows by addon.
-        Args:
-            addon: The addon to list the windows for.
-        Returns:
-            A list of dictionaries containing the window UUID and addon.
         """
+        List all windows for a specific addon.
 
-        return [
-            {"window_uuid": window_uuid, "addon": window.addon}
-            for window_uuid, window in self._windows.items()
-            if window.addon == addon
-        ]
-
-    def list_by_session(self, session: str) -> list[dict]:
-        """List all windows by session.
         Args:
-            session: The session to list the windows for.
+            addon: The addon name to filter by
+
         Returns:
-            A list of dictionaries containing the window UUID and addon.
+            List of window information dictionaries
         """
+        windows = []
+        for window_id, window in self._windows.items():
+            if window.addon == addon:
+                windows.append(
+                    {
+                        "window_id": window_id,
+                        "addon": window.addon,
+                        "session_id": window.session_id,
+                    }
+                )
+        return windows
 
-        return [
-            {"window_uuid": window_uuid, "addon": window.addon}
-            for window_uuid, window in self._windows.items()
-            if window.session == session
-        ]
+    def list_by_session_id(self, session_id: str) -> list[dict]:
+        """
+        List all windows for a specific session_id.
 
-    def get_window(self, uuid: str) -> QiWindow | None:
-        """Get a window by UUID.
         Args:
-            uuid: The UUID of the window to get.
+            session_id: The session identifier to filter by
+
         Returns:
-            The window if found, otherwise None.
+            List of window information dictionaries
         """
+        windows = []
+        for window_id, window in self._windows.items():
+            if window.session_id == session_id:
+                windows.append(
+                    {
+                        "window_id": window_id,
+                        "addon": window.addon,
+                        "session_id": window.session_id,
+                    }
+                )
+        return windows
 
-        return self._windows.get(uuid, None)
+    def get_window(self, window_id: str) -> QiWindow | None:
+        """
+        Get a window instance by its window_id.
 
-    def invoke(self, window_uuid: str, method: str, *args):
-        """Invoke a method on a window.
         Args:
-            window_uuid: The UUID of the window to invoke the method on.
-            method: The method to invoke.
-            *args: Additional arguments to pass to the method.
+            window_id: The window identifier
+
         Returns:
-            The result of the method.
+            The window instance, or None if not found
         """
+        return self._windows.get(window_id)
 
-        win = self._windows[window_uuid]
-        fn = getattr(win, method)
-        if threading.get_ident() == self._gui_thread:
-            return fn(*args)
-        loop = asyncio.get_event_loop()
-        return loop.call_soon_threadsafe(fn, *args)
+    def invoke(self, window_id: str, method: str, *args):
+        """
+        Invoke a method on a specific window.
 
-    def close(self, window_uuid: str) -> str | None:
-        """Close a window.
         Args:
-            window_uuid: The UUID of the window to close.
-        Returns:
-            The UUID of the window if it was closed, otherwise None.
-        """
+            window_id: The window identifier
+            method: The method name to invoke
+            *args: Arguments to pass to the method
 
-        win = self._windows.get(window_uuid, None)
-        if win:
-            win.close()
-            # Don't delete here - let the close event callback handle cleanup
-            # to avoid race condition with _on_window_closed callback
-            return window_uuid
-        log.warning(f"Window {window_uuid} not found")
-        return None
+        Returns:
+            The result of the method call, or None if window not found
+        """
+        window = self.get_window(window_id)
+        if window:
+            if hasattr(window, method):
+                return getattr(window, method)(*args)
+            else:
+                log.warning(f"Method '{method}' not found on window {window_id}")
+                return None
+        else:
+            log.warning(f"Window {window_id} not found for method invocation")
+            return None
+
+    def close(self, window_id: str) -> str | None:
+        """
+        Close a specific window.
+
+        Args:
+            window_id: The window identifier to close
+
+        Returns:
+            The window_id if successfully closed, None otherwise
+        """
+        window = self.get_window(window_id)
+        if window:
+            log.info(f"Closing window {window_id}")
+            window.close()
+            return window_id
+        else:
+            log.warning(f"Window {window_id} not found for closing")
+            return None
 
     def run(self, *args: Any, **kwargs: Any) -> None:
         """Run the webview server and the event loop.
@@ -167,5 +216,5 @@ class QiWindowManager:
     def exit(self) -> None:
         """Destroy all windows to end event loop."""
 
-        for window_uuid in self._windows.keys():
-            self.close(window_uuid)
+        for window_id in self._windows.keys():
+            self.close(window_id)

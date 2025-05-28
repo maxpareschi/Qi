@@ -15,7 +15,7 @@ function getContextField(field, urlParams, stored, global, path) {
 }
 
 /**
- * Detect context from various sources in priority order:
+ * Detect business context from various sources in priority order:
  * 1. URL parameters (highest priority)
  * 2. sessionStorage (persistent)
  * 3. Global variables (set by server/addon)
@@ -52,13 +52,13 @@ function detectContext() {
 /**
  * Detect context with window-specific storage
  */
-function detectContextForWindow(window_uuid) {
+function detectContextForWindow(window_id) {
   if (!browser) {
     return { project: null, entity: null, task: null };
   }
 
   const urlParams = new URLSearchParams(location.search);
-  const windowStorageKey = `qiContext_${window_uuid}`;
+  const windowStorageKey = `qiContext_${window_id}`;
   const stored = JSON.parse(sessionStorage.getItem(windowStorageKey) || "{}");
   const global = window.qi_context || {};
   const path = {}; // Placeholder for future path-based detection
@@ -78,7 +78,7 @@ function detectContextForWindow(window_uuid) {
         "🎯 Window-specific context detected:",
         context,
         "for window:",
-        window_uuid
+        window_id
       );
     }
   }
@@ -92,11 +92,12 @@ function detectContextForWindow(window_uuid) {
 
 export const qiConnection = $state({
   // Reactive properties
-  session: null,
+  session_id: null,
   addon: null,
+  window_id: null,
   socket: null,
   context: null,
-  window_uuid: null,
+  user: null,
   connected: false,
 
   // Functions (will be properly initialized in initQiConnection)
@@ -106,7 +107,9 @@ export const qiConnection = $state({
    * @param {Object} params - Named parameters
    * @param {Object} params.payload - Message payload data (default: {})
    * @param {Object} params.context - Context override (optional)
-   * @param {string} params.reply_to - UUID of message this is replying to (optional)
+   * @param {Object} params.source - Source override (optional, auto-generated if not provided)
+   * @param {Object} params.user - User override (optional)
+   * @param {string} params.reply_to - ID of message this is replying to (optional)
    *
    * @example
    * // Basic usage
@@ -118,7 +121,16 @@ export const qiConnection = $state({
    * // Override context
    * qiConnection.emit("task.update", {payload: {status: "done"}, context: {project: "other-project"}})
    */
-  emit(topic, { payload = {}, context = null, reply_to = null } = {}) {
+  emit(
+    topic,
+    {
+      payload = {},
+      context = null,
+      source = null,
+      user = null,
+      reply_to = null,
+    } = {}
+  ) {
     console.warn(
       "qiConnection not initialized. Call initQiConnection() first."
     );
@@ -143,21 +155,25 @@ export const qiConnection = $state({
 
   getConnectionInfo() {
     return {
-      session: this.session,
+      session_id: this.session_id,
       addon: this.addon,
       context: this.context,
-      window_uuid: this.window_uuid,
+      user: this.user,
+      window_id: this.window_id,
       connected: this.connected,
     };
   },
 
   updateContext(newContext) {
     this.context = { ...this.context, ...newContext };
-    // Note: session is managed automatically and shouldn't be manually updated
-    if (browser && this.window_uuid) {
-      const windowStorageKey = `qiContext_${this.window_uuid}`;
+    if (browser && this.window_id) {
+      const windowStorageKey = `qiContext_${this.window_id}`;
       sessionStorage.setItem(windowStorageKey, JSON.stringify(this.context));
     }
+  },
+
+  updateUser(newUser) {
+    this.user = { ...this.user, ...newUser };
   },
 });
 
@@ -174,14 +190,14 @@ export const initQiConnection = async () => {
     return;
   }
 
-  // Initialize session (this can be shared across windows)
-  let session = sessionStorage.getItem("qiSession");
-  if (!session) {
+  // Initialize session_id (this can be shared across windows)
+  let session_id = sessionStorage.getItem("qiSessionId");
+  if (!session_id) {
     const params = new URLSearchParams(location.search);
-    session = params.get("session") ?? crypto.randomUUID();
-    sessionStorage.setItem("qiSession", session);
+    session_id = params.get("session_id") ?? crypto.randomUUID();
+    sessionStorage.setItem("qiSessionId", session_id);
   }
-  qiConnection.session = session;
+  qiConnection.session_id = session_id;
 
   // Initialize addon (this can be shared across windows)
   let addon = sessionStorage.getItem("qiAddon");
@@ -191,55 +207,46 @@ export const initQiConnection = async () => {
   }
   qiConnection.addon = addon;
 
-  // Initialize context (will be set after window UUID is determined)
-  qiConnection.context = null;
-
-  // Initialize window UUID with priority order:
+  // Initialize window_id with priority order:
   // 1. URL parameters (highest priority - from server)
   // 2. pywebview API
   // 3. Generate fallback
 
-  let window_uuid = null;
+  let window_id = null;
   const urlParams = new URLSearchParams(location.search);
 
   // First try URL parameters (from server)
-  window_uuid = urlParams.get("window_uuid");
-  if (window_uuid) {
+  window_id = urlParams.get("window_id");
+  if (window_id) {
     if (import.meta.env?.DEV) {
-      console.log("🪟 Window UUID from URL parameter:", window_uuid);
+      console.log("🪟 Window ID from URL parameter:", window_id);
     }
   } else {
     // Try pywebview API as fallback
     if (typeof window.pywebview !== "undefined" && window.pywebview.api) {
       try {
-        const result = window.pywebview.api.get_window_uuid();
+        const result = window.pywebview.api.get_window_id();
         // Handle both sync and async results
         if (result && typeof result.then === "function") {
           // It's a Promise, wait for it
           try {
-            window_uuid = await result;
+            window_id = await result;
             if (import.meta.env?.DEV) {
               console.log(
-                "🪟 Window UUID from pywebview API (async):",
-                window_uuid
+                "🪟 Window ID from pywebview API (async):",
+                window_id
               );
             }
           } catch (e) {
             if (import.meta.env?.DEV) {
-              console.log(
-                "🪟 Failed to await window UUID from pywebview API",
-                e
-              );
+              console.log("🪟 Failed to await window ID from pywebview API", e);
             }
           }
         } else {
           // It's a direct value
-          window_uuid = result;
+          window_id = result;
           if (import.meta.env?.DEV) {
-            console.log(
-              "🪟 Window UUID from pywebview API (sync):",
-              window_uuid
-            );
+            console.log("🪟 Window ID from pywebview API (sync):", window_id);
           }
         }
 
@@ -252,7 +259,7 @@ export const initQiConnection = async () => {
       } catch (e) {
         // pywebview API not available or method doesn't exist
         if (import.meta.env?.DEV) {
-          console.log("🪟 Window UUID not available from pywebview API", e);
+          console.log("🪟 Window ID not available from pywebview API", e);
         }
       }
     } else {
@@ -265,29 +272,32 @@ export const initQiConnection = async () => {
     }
   }
 
-  // Ensure window_uuid is always null or a string, never an object
-  if (window_uuid && typeof window_uuid === "string") {
-    qiConnection.window_uuid = window_uuid;
+  // Ensure window_id is always null or a string, never an object
+  if (window_id && typeof window_id === "string") {
+    qiConnection.window_id = window_id;
     if (import.meta.env?.DEV) {
-      console.log("🪟 Window UUID set to:", window_uuid);
+      console.log("🪟 Window ID set to:", window_id);
     }
   } else {
     // Fallback: generate a unique window ID if pywebview API isn't available
     // This ensures each window instance has a unique identifier
     // Note: Don't use sessionStorage as it's shared between windows
     const fallback_window_id = `window_${crypto.randomUUID()}`;
-    qiConnection.window_uuid = fallback_window_id;
+    qiConnection.window_id = fallback_window_id;
 
     if (import.meta.env?.DEV) {
-      console.log("🪟 Generated fallback window UUID:", fallback_window_id, {
-        received: window_uuid,
-        type: typeof window_uuid,
+      console.log("🪟 Generated fallback window ID:", fallback_window_id, {
+        received: window_id,
+        type: typeof window_id,
       });
     }
   }
 
   // Now initialize context with window-specific storage
-  qiConnection.context = detectContextForWindow(qiConnection.window_uuid);
+  qiConnection.context = detectContextForWindow(qiConnection.window_id);
+
+  // Initialize user (for future auth integration)
+  qiConnection.user = null; // TODO: Detect user from auth system
 
   // Initialize WebSocket - check if existing connection is still valid
   const existingWs = window.__qiConnection;
@@ -305,7 +315,7 @@ export const initQiConnection = async () => {
     }
 
     const ws = new WebSocket(
-      `ws://127.0.0.1:8000/ws?session=${session}&window_uuid=${qiConnection.window_uuid}`
+      `ws://127.0.0.1:8000/ws?session_id=${session_id}&window_id=${qiConnection.window_id}`
     );
 
     // Connection event handlers
@@ -314,7 +324,7 @@ export const initQiConnection = async () => {
 
       if (import.meta.env?.DEV) {
         console.log(
-          `🔗 WebSocket connected: session=${session}, window=${qiConnection.window_uuid?.slice(
+          `🔗 WebSocket connected: session_id=${session_id}, window_id=${qiConnection.window_id?.slice(
             0,
             8
           )}...`
@@ -356,7 +366,7 @@ export const initQiConnection = async () => {
         // All messages received here are intended for this window
         if (import.meta.env?.DEV) {
           console.log(
-            `📥 ${envelope.topic} → window ${qiConnection.window_uuid?.slice(
+            `📥 ${envelope.topic} → window ${qiConnection.window_id?.slice(
               0,
               8
             )}...`
@@ -393,14 +403,20 @@ export const initQiConnection = async () => {
   // Initialize function implementations
   qiConnection.emit = (
     topic,
-    { payload = {}, context = null, reply_to = null } = {}
+    {
+      payload = {},
+      context = null,
+      source = null,
+      user = null,
+      reply_to = null,
+    } = {}
   ) => {
     if (!qiConnection.connected) {
       console.warn("Cannot send message: WebSocket not connected");
       return;
     }
 
-    // Proper context merging: if custom context provided, use it as base and fill in missing fields
+    // Build context: use provided context or default context
     let finalContext;
     if (context) {
       finalContext = {
@@ -416,38 +432,33 @@ export const initQiConnection = async () => {
           context.task !== undefined
             ? context.task
             : qiConnection.context?.task || null,
-        session: qiConnection.session, // Always use current session
-        window_uuid:
-          context.window_uuid !== undefined
-            ? context.window_uuid
-            : qiConnection.window_uuid || null,
       };
     } else {
       finalContext = {
         project: qiConnection.context?.project || null,
         entity: qiConnection.context?.entity || null,
         task: qiConnection.context?.task || null,
-        session: qiConnection.session,
-        window_uuid: qiConnection.window_uuid || null,
       };
     }
 
-    // Extra safety check - ensure window_uuid is never an object
-    if (
-      finalContext.window_uuid &&
-      typeof finalContext.window_uuid !== "string"
-    ) {
-      finalContext.window_uuid = null;
-      if (import.meta.env?.DEV) {
-        console.warn("🚨 window_uuid was not a string, setting to null");
-      }
-    }
+    // Build source information (for routing)
+    const source = {
+      addon: qiConnection.addon,
+      session_id: qiConnection.session_id,
+      window_id: qiConnection.window_id,
+      user: user || qiConnection.user || null,
+    };
+
+    // Build user information
+    const finalUser = user || qiConnection.user || null;
 
     const envelope = {
       message_id: crypto.randomUUID(),
       topic,
       payload: payload || {},
       context: finalContext,
+      source: source,
+      user: finalUser,
       reply_to: reply_to,
       timestamp: Date.now() / 1000,
     };

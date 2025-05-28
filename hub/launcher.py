@@ -103,7 +103,7 @@ if __name__ == "__main__":
     ).replace("\\", "/")
 
     for addon_name, addon_data in qi_addons.items():
-        window_manager.create_window(addon=addon_name, session="test-session")
+        window_manager.create_window(addon=addon_name, session_id="test-session")
 
     window_manager.run(
         icon=icon_path,

@@ -18,18 +18,22 @@ qi_server = FastAPI()
 
 @qi_server.websocket("/ws")
 async def websocket_endpoint(
-    ws: WebSocket, session: str = None, window_uuid: str = None
+    ws: WebSocket, session_id: str = None, window_id: str = None
 ):
-    # Extract session and window_uuid from query parameters if not provided as path params
-    if session is None:
-        session = ws.query_params.get("session", "unknown")
-    if window_uuid is None:
-        window_uuid = ws.query_params.get("window_uuid")
+    # Extract session_id and window_id from query parameters if not provided as path params
+    if not session_id:
+        session_id = ws.query_params.get("session_id")
+    if not window_id:
+        window_id = ws.query_params.get("window_id")
 
-    log.debug(
-        f"🌐 WebSocket endpoint: session={session}, window_uuid={window_uuid[:8] if window_uuid else 'None'}..."
+    if not session_id:
+        await ws.close(code=4000, reason="session_id parameter required")
+        return
+
+    log.info(
+        f"WebSocket connection request: session_id={session_id}, window_id={window_id}"
     )
-    await qi_bus.connect(ws, session, window_uuid)
+    await qi_bus.connect(ws, session_id, window_id)
 
 
 if qi_dev_mode:
