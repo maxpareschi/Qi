@@ -1,7 +1,7 @@
-from core.bus import (
+from core.bus.bus_new import QiEventBus
+from core.bus.event import (
     QiContext,
     QiEvent,
-    QiEventBus,
     QiSource,
     QiUser,
     get_addon_from_source,
@@ -9,11 +9,8 @@ from core.bus import (
     get_window_id_from_source,
 )
 
-from .server import create_server
-
 __all__ = [
     "QiEventBus",
-    "create_server",
     "QiContext",
     "QiEvent",
     "QiSource",

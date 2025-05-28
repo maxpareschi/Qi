@@ -12,15 +12,13 @@ Simple async event bus + WebSocket connection manager for Qi.
 import asyncio
 import json
 import os
-import time
-import uuid
 from collections import defaultdict
 from typing import Any, Awaitable, Callable, Optional, TypeAlias
 
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ConfigDict, Field
 
 from core import logger
+from core.bus.event import QiContext, QiEvent, QiSource, QiUser
 
 # --------------------------------------------------------------------------- #
 #                               CONFIG / CONSTANTS                            #
@@ -30,71 +28,11 @@ log = logger.get_logger(__name__)
 qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 # --------------------------------------------------------------------------- #
-#                               ENVELOPE MODEL                                #
-# --------------------------------------------------------------------------- #
-
-
-class QiContext(BaseModel):
-    """Business context for pipeline/project decisions."""
-
-    project: Optional[str] = None
-    entity: Optional[str] = None
-    task: Optional[str] = None
-    # Extra context can be added as needed
-
-    @classmethod
-    def from_env(cls) -> "QiContext":
-        return cls(
-            project=os.getenv("QI_PROJECT", None),
-            entity=os.getenv("QI_ENTITY", None),
-            task=os.getenv("QI_TASK", None),
-        )
-
-
-class QiUser(BaseModel):
-    """User information for auth and user-specific routing."""
-
-    id: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[str] = None
-    # Future: auth tokens, permissions, etc.
-
-
-class QiSource(BaseModel):
-    """Source information for message routing."""
-
-    addon: str
-    session_id: str
-    window_id: Optional[str] = None
-    user: Optional[QiUser] = None
-
-
-class QiEnvelope(BaseModel):
-    """Canonical message wrapper with separated concerns."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        validate_default=qi_dev_mode,
-        validate_assignment=False,
-        strict=qi_dev_mode,
-    )
-
-    message_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    topic: str = Field(default="")
-    payload: dict[str, Any] = Field(default_factory=dict)
-    context: Optional[QiContext] = Field(default=None)
-    source: Optional[QiSource] = Field(default=None)
-    user: Optional[QiUser] = Field(default=None)
-    reply_to: Optional[str] = Field(default=None)
-    timestamp: float = Field(default_factory=time.time)
-
-
-# --------------------------------------------------------------------------- #
 #                            SINGLETON META CLASS                             #
 # --------------------------------------------------------------------------- #
 
 
-class _Singleton(type):
+class QiEventBusSingleton(type):
     _inst: "QiEventBus|None" = None
 
     def __call__(cls, *a, **kw):
@@ -107,14 +45,14 @@ class _Singleton(type):
         cls._inst = None
 
 
-Handler: TypeAlias = Callable[[QiEnvelope], Awaitable | None]
+Handler: TypeAlias = Callable[[QiEvent], Awaitable | None]
 
 # --------------------------------------------------------------------------- #
 #                                 EVENT BUS                                   #
 # --------------------------------------------------------------------------- #
 
 
-class QiEventBus(metaclass=_Singleton):
+class QiEventBus(metaclass=QiEventBusSingleton):
     """Singleton event bus for inter-addon communication."""
 
     def __init__(self) -> None:
@@ -122,7 +60,7 @@ class QiEventBus(metaclass=_Singleton):
         self._sessions: dict[str, WebSocket] = {}
         # Track windows within sessions: {session_id: {window_id: WebSocket}}
         self._windows: dict[str, dict[str, WebSocket]] = defaultdict(dict)
-        self._message_registry: dict[str, QiEnvelope] = {}
+        self._message_registry: dict[str, QiEvent] = {}
         self._reply_routes: dict[str, tuple[str, Optional[str]]] = {}
         self._connections: dict[str, dict[str, WebSocket]] = {}
         self._session_to_addon: dict[str, str] = {}
@@ -132,14 +70,14 @@ class QiEventBus(metaclass=_Singleton):
     def list_handlers(self) -> None:
         """List all registered handlers for debugging."""
         for topic, handlers in self._handlers.items():
-            log.info(f"Topic '{topic}': {len(handlers)} handlers")
+            log.debug(f"Topic '{topic}': {len(handlers)} handlers")
 
     def on(self, topic: str) -> Callable[[Handler], Handler]:
         """Register a handler for a topic."""
         topic = topic.strip()
 
         def decorator(func: Handler) -> Handler:
-            log.debug(f"📝 Handler '{func.__name__}' → {topic}")
+            log.debug(f"Registering Handler '{func.__name__}' on Topic '{topic}'")
             self._handlers[topic].add(func)
             return func
 
@@ -173,7 +111,7 @@ class QiEventBus(metaclass=_Singleton):
             while True:
                 data = await ws.receive_text()
                 envelope_data = json.loads(data) if isinstance(data, str) else data
-                envelope = QiEnvelope.model_validate(envelope_data)
+                envelope = QiEvent.model_validate(envelope_data)
 
                 # Auto-detect addon from first message if not known
                 if session_id not in self._session_to_addon and envelope.source:
@@ -236,7 +174,7 @@ class QiEventBus(metaclass=_Singleton):
         if isinstance(user, dict):
             user = QiUser.model_validate(user)
 
-        envelope = QiEnvelope(
+        envelope = QiEvent(
             topic=topic,
             payload=payload or {},
             context=context,
@@ -249,7 +187,7 @@ class QiEventBus(metaclass=_Singleton):
 
     # ------------------------------- INTERNAL ------------------------------ #
 
-    async def _dispatch(self, envelope: QiEnvelope, from_client: bool = False) -> None:
+    async def _dispatch(self, envelope: QiEvent, from_client: bool = False) -> None:
         """Dispatch message to handlers and route as needed."""
 
         # Always call local handlers first
@@ -264,7 +202,7 @@ class QiEventBus(metaclass=_Singleton):
         elif not from_client:
             await self._broadcast(envelope)
 
-    async def _route_reply(self, envelope: QiEnvelope) -> None:
+    async def _route_reply(self, envelope: QiEvent) -> None:
         """Route reply message to original sender."""
         reply_to_str = str(envelope.reply_to)
 
@@ -299,9 +237,7 @@ class QiEventBus(metaclass=_Singleton):
         else:
             log.warning(f"No reply route found for message {reply_to_str}")
 
-    async def _send_message(
-        self, envelope: QiEnvelope, connections: dict = None
-    ) -> None:
+    async def _send_message(self, envelope: QiEvent, connections: dict = None) -> None:
         """Send message to specified connections or all connections."""
         message = envelope.model_dump_json()
         target_connections = connections or self._connections
@@ -340,7 +276,7 @@ class QiEventBus(metaclass=_Singleton):
                     if session_id in self._session_to_addon:
                         del self._session_to_addon[session_id]
 
-    async def _broadcast(self, envelope: QiEnvelope) -> None:
+    async def _broadcast(self, envelope: QiEvent) -> None:
         """Broadcast message to all connected clients."""
         if not self._connections:
             log.debug(f"No connections for broadcast: {envelope.topic}")
@@ -350,7 +286,7 @@ class QiEventBus(metaclass=_Singleton):
         total_connections = sum(len(conns) for conns in self._connections.values())
         log.debug(f"Broadcasted {envelope.topic} to {total_connections} connections")
 
-    async def _call_handler(self, handler: Handler, envelope: QiEnvelope) -> None:
+    async def _call_handler(self, handler: Handler, envelope: QiEvent) -> None:
         """Call a message handler safely."""
         try:
             if asyncio.iscoroutinefunction(handler):
@@ -364,26 +300,8 @@ class QiEventBus(metaclass=_Singleton):
 
 
 # --------------------------------------------------------------------------- #
-#                               PUBLIC SINGLETON                              #
+#                               PUBLIC EXPORTS                               #
 # --------------------------------------------------------------------------- #
 
-qi_bus = QiEventBus()
-
-# ============================================================================
-# Helper functions
-# ============================================================================
-
-
-def get_session_id_from_source(envelope: QiEnvelope) -> str:
-    """Helper to extract session_id from envelope source."""
-    return envelope.source.session_id if envelope.source else "unknown"
-
-
-def get_addon_from_source(envelope: QiEnvelope) -> str:
-    """Helper to extract addon from envelope source."""
-    return envelope.source.addon if envelope.source else "unknown"
-
-
-def get_window_id_from_source(envelope: QiEnvelope) -> Optional[str]:
-    """Helper to extract window_id from envelope source."""
-    return envelope.source.window_id if envelope.source else None
+# Use direct class instantiation for consistency:
+# bus = QiEventBus()  # Always returns the singleton instance

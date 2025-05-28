@@ -93,6 +93,7 @@ export let windowState = $state({
   isMoving: false,
   isResizing: false,
   isMaximized: false,
+  isMinimized: false,
   resizingSide: null,
   dpi: window.devicePixelRatio,
   mousePosition: { x: 0, y: 0 },
@@ -108,4 +109,5 @@ export let windowState = $state({
 
   statusMessageMain: "Test Message Main",
   statusMessageSub: "Test Message Sub",
+  isAppMenuOpen: false,
 });

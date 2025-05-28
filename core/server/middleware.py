@@ -16,15 +16,17 @@ class QiDevProxyMiddleware(BaseHTTPMiddleware):
     """Middleware to proxy requests to development servers in dev mode"""
 
     async def dispatch(self, request: Request, call_next):
-        if dev_servers := json.loads(os.getenv("QI_ADDONS", "{}")):
-            for addon_name, addon_data in dev_servers.items():
-                log.debug(
-                    f'Name: "{addon_name}", URL: "{addon_data["url"]}", REQUEST: "{request.url.path}", PARAMS: "{request.query_params}"'
+        dev_servers: dict[str, dict[str, str]] = json.loads(
+            os.getenv("QI_ADDONS", json.dumps({}))
+        )
+        for addon_name, addon_data in dev_servers.items():
+            log.debug(
+                f'Name: "{addon_name}", URL: "{addon_data["url"]}", REQUEST: "{request.url.path}", PARAMS: "{request.query_params}"'
+            )
+            if request.url.path.startswith(f"/{addon_name}"):
+                return RedirectResponse(
+                    url=f"{addon_data['url']}/{addon_name}?{request.query_params}"
                 )
-                if request.url.path.startswith(f"/{addon_name}"):
-                    return RedirectResponse(
-                        url=f"{addon_data['url']}/{addon_name}?{request.query_params}"
-                    )
 
         return await call_next(request)
 

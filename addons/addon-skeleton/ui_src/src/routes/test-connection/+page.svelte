@@ -10,27 +10,13 @@
     // Subscribe to all test messages
     unsubscribeFunctions.push(
       qiConnection.on("test.echo.reply", (envelope) => {
-        messages.push({
-          type: "echo_reply",
-          topic: envelope.topic,
-          payload: envelope.payload,
-          timestamp: new Date().toISOString(),
-          envelope
-        });
-        messages = [...messages]; // trigger reactivity
+        addMessage("echo_reply", envelope.topic, envelope.payload, envelope);
       })
     );
     
     unsubscribeFunctions.push(
       qiConnection.on("test.pong", (envelope) => {
-        messages.push({
-          type: "pong",
-          topic: envelope.topic,
-          payload: envelope.payload,
-          timestamp: new Date().toISOString(),
-          envelope
-        });
-        messages = [...messages]; // trigger reactivity
+        addMessage("pong", envelope.topic, envelope.payload, envelope);
       })
     );
   });
@@ -38,34 +24,33 @@
   onDestroy(() => {
     unsubscribeFunctions.forEach(unsub => unsub());
   });
+
+  const addMessage = (type, topic, payload, envelope = null) => {
+    messages.push({
+      type,
+      topic,
+      payload,
+      timestamp: new Date().toISOString(),
+      envelope
+    });
+    messages = [...messages]; // trigger reactivity
+  };
   
   const sendTestMessage = () => {
     if (!testInput.trim()) return;
     
     const payload = { message: testInput, timestamp: new Date().toISOString() };
-    qiConnection.emit("test.echo", {payload});
+    qiConnection.emit("test.echo", { payload });
     
-    messages.push({
-      type: "sent",
-      topic: "test.echo", 
-      payload,
-      timestamp: new Date().toISOString()
-    });
-    messages = [...messages]; // trigger reactivity
-    
+    addMessage("sent", "test.echo", payload);
     testInput = "";
   };
   
   const sendPing = () => {
-    qiConnection.emit("test.ping", {payload: { timestamp: new Date().toISOString() }});
+    const payload = { timestamp: new Date().toISOString() };
+    qiConnection.emit("test.ping", { payload });
     
-    messages.push({
-      type: "sent", 
-      topic: "test.ping",
-      payload: { timestamp: new Date().toISOString() },
-      timestamp: new Date().toISOString()
-    });
-    messages = [...messages]; // trigger reactivity
+    addMessage("sent", "test.ping", payload);
   };
   
   const clearMessages = () => {

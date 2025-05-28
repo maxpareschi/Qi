@@ -21,7 +21,7 @@
       qiConnection.on("wm.window.opened", (envelope) => {
         console.log("Window opened:", envelope.payload);
         // Refresh the window list
-        qiConnection.emit("wm.window.list_all", { payload: {} });
+        listWindows();
       })
     );
 
@@ -29,7 +29,7 @@
       qiConnection.on("wm.window.closed", (envelope) => {
         console.log("Window closed:", envelope.payload);
         // Refresh the window list
-        qiConnection.emit("wm.window.list_all", { payload: {} });
+        listWindows();
       })
     );
 
@@ -48,26 +48,22 @@
   });
 
   const createWindow = () => {
-    qiConnection.emit("wm.window.open", { payload: {} });
+    qiConnection.emit("wm.window.open");
   };
 
   const listWindows = () => {
-    qiConnection.emit("wm.window.list_all", { payload: {} });
-  };
-
-  const closeWindow = (window_id) => {
-    qiConnection.emit("wm.window.close", { payload: { window_id } });
+    qiConnection.emit("wm.window.list_all");
   };
 
   const testPing = () => {
     qiConnection.emit("test.ping", {
-      payload: { timestamp: new Date().toISOString() },
+      payload: { timestamp: new Date().toISOString() }
     });
   };
 
   const debugServer = () => {
     qiConnection.emit("debug.server", {
-      payload: { timestamp: new Date().toISOString() },
+      payload: { timestamp: new Date().toISOString() }
     });
   };
 </script>

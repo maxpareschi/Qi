@@ -66,17 +66,18 @@ QiMessage = {
 # Python emit examples:
 """
 # Basic message
-await qi_bus.emit("task.status", payload={"status": "completed"})
+bus = QiEventBus()
+await bus.emit("task.status", payload={"status": "completed"})
 
 # Message with custom context
-await qi_bus.emit(
+await bus.emit(
     "asset.updated", 
     payload={"asset_id": "123"},
     context={"project": "ProjectX", "entity": "Character", "task": "Modeling"}
 )
 
 # Reply to a message (auto-routes to original sender)
-await qi_bus.emit(
+await bus.emit(
     "task.result",
     payload={"result": "success"}, 
     reply_to=envelope.message_id
@@ -120,3 +121,33 @@ UUID Fields as Strings:
 - Only requirement is uniqueness for routing purposes
 - Generated using uuid.uuid4() converted to string
 """
+
+"""
+Example: Sending different types of messages with the Qi envelope system
+"""
+
+from core.bus import QiEventBus
+
+
+async def example_usage():
+    """Example of how to use the QiEventBus."""
+
+    # Get the singleton bus instance
+    bus = QiEventBus()
+
+    # Example 1: Simple task status update
+    await bus.emit("task.status", payload={"status": "completed"})
+
+    # Example 2: Message with business context
+    await bus.emit(
+        "shot.published",
+        payload={"shot_id": "shot_010", "version": 3},
+        context={"project": "MyProject", "entity": "shot_010"},
+    )
+
+    # Example 3: Reply to a specific message
+    await bus.emit(
+        "response.success",
+        payload={"result": "operation completed"},
+        reply_to="original-message-id",
+    )

@@ -1,51 +1,5 @@
 import { windowState } from "../states/qi.windowState.svelte";
-
-export const minimizeWindow = () => {
-  if (typeof pywebview !== "undefined") {
-    pywebview.api.minimize();
-  }
-};
-
-export const maximizeWindow = () => {
-  if (typeof pywebview !== "undefined") {
-    if (windowState.isMaximized) {
-      pywebview.api.restore();
-      windowState.isMaximized = false;
-    } else {
-      pywebview.api.maximize();
-      windowState.isMaximized = true;
-    }
-  }
-};
-
-export const closeWindow = () => {
-  if (typeof pywebview !== "undefined") {
-    pywebview.api.close();
-  }
-};
-
-export const startMove = (event) => {
-  if (windowState.isMoving) return;
-  windowState.mousePosition = { x: event.clientX, y: event.clientY };
-  windowState.isMoving = true;
-  window.addEventListener("mousemove", doMove);
-  window.addEventListener("mouseup", stopMove);
-};
-
-export const stopMove = () => {
-  if (!windowState.isMoving) return;
-  windowState.isMoving = false;
-  windowState.mousePosition = { x: 0, y: 0 };
-  window.removeEventListener("mousemove", doMove);
-  window.removeEventListener("mouseup", stopMove);
-};
-
-export const doMove = (event) => {
-  if (!windowState.isMoving) return;
-  let x = Math.ceil(event.screenX - windowState.mousePosition.x);
-  let y = Math.ceil(event.screenY - windowState.mousePosition.y);
-  pywebview.api.move(x, y);
-};
+import { qiConnection } from "./qi.windowConnections.svelte";
 
 export const startResize = (event) => {
   windowState.isResizing = true;
@@ -55,21 +9,76 @@ export const startResize = (event) => {
     width: window.innerWidth,
     height: window.innerHeight,
   };
-  window.addEventListener("mousemove", doResize);
+  window.addEventListener("mousemove", resizeWindow);
   window.addEventListener("mouseup", stopResize);
 };
 
 export const stopResize = () => {
   windowState.isResizing = false;
   windowState.resizingSide = null;
-  windowState.windowSize = { width: 0, height: 0 };
   windowState.windowPosition = { x: 0, y: 0 };
-  window.removeEventListener("mousemove", doResize);
+  windowState.windowSize = { width: 0, height: 0 };
+  window.removeEventListener("mousemove", resizeWindow);
   window.removeEventListener("mouseup", stopResize);
 };
 
-export const doResize = (event) => {
-  if (!windowState.isResizing) return;
+export const startMove = (event) => {
+  windowState.isMoving = true;
+  windowState.mousePosition = { x: event.clientX, y: event.clientY };
+  window.addEventListener("mousemove", moveWindow);
+  window.addEventListener("mouseup", stopMove);
+};
+
+export const stopMove = () => {
+  windowState.isMoving = false;
+  windowState.mousePosition = { x: 0, y: 0 };
+  window.removeEventListener("mousemove", moveWindow);
+  window.removeEventListener("mouseup", stopMove);
+};
+
+export const minimizeWindow = async () => {
+  qiConnection.emit("wm.window.minimize");
+  windowState.isMinimized = true;
+};
+
+export const maximizeWindow = async () => {
+  qiConnection.emit("wm.window.maximize");
+  windowState.isMaximized = true;
+};
+
+export const closeWindow = async () => {
+  qiConnection.emit("wm.window.close");
+};
+
+export const restoreWindow = async () => {
+  qiConnection.emit("wm.window.restore");
+  windowState.isMaximized = false;
+  windowState.isMinimized = false;
+  windowState.isMoving = false;
+  windowState.isResizing = false;
+};
+
+export const hideWindow = async () => {
+  qiConnection.emit("wm.window.hide");
+};
+
+export const showWindow = async () => {
+  qiConnection.emit("wm.window.show");
+};
+
+export const moveWindow = (event) => {
+  let x = Math.ceil(event.screenX - windowState.mousePosition.x);
+  let y = Math.ceil(event.screenY - windowState.mousePosition.y);
+
+  qiConnection.emit("wm.window.move", {
+    payload: {
+      x: x,
+      y: y,
+    },
+  });
+};
+
+export const resizeWindow = (event) => {
   let width = windowState.windowSize.width;
   let height = windowState.windowSize.height;
 
@@ -111,5 +120,28 @@ export const doResize = (event) => {
   height = Math.ceil(
     Math.max(height, windowState.minSize.height) * windowState.dpi
   );
-  pywebview.api.resize(width, height, windowState.resizingSide);
+
+  qiConnection.emit("wm.window.resize", {
+    payload: {
+      width: width,
+      height: height,
+      edge: windowState.resizingSide,
+    },
+  });
+};
+
+export const getWindowState = async () => {
+  return new Promise((resolve) => {
+    const unsubscribe = qiConnection.on(
+      "wm.window.state_response",
+      (envelope) => {
+        if (envelope.source.window_id === qiConnection.window_id) {
+          unsubscribe();
+          resolve(envelope.payload);
+        }
+      }
+    );
+
+    qiConnection.emit("wm.window.get_state");
+  });
 };

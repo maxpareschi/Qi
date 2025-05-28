@@ -42,7 +42,7 @@ function detectContext() {
     sessionStorage.setItem("qiContext", JSON.stringify(context));
 
     if (import.meta.env?.DEV) {
-      console.log("🎯 Context detected:", context);
+      console.log("Context detected:", context);
     }
   }
 
@@ -75,7 +75,7 @@ function detectContextForWindow(window_id) {
 
     if (import.meta.env?.DEV) {
       console.log(
-        "🎯 Window-specific context detected:",
+        "Window-specific context detected:",
         context,
         "for window:",
         window_id
@@ -100,40 +100,131 @@ export const qiConnection = $state({
   user: null,
   connected: false,
 
-  // Functions (will be properly initialized in initQiConnection)
   /**
    * Send a message through the WebSocket connection.
-   * @param {string} topic - Message topic
-   * @param {Object} params - Named parameters
-   * @param {Object} params.payload - Message payload data (default: {})
-   * @param {Object} params.context - Context override (optional)
-   * @param {Object} params.source - Source override (optional, auto-generated if not provided)
-   * @param {Object} params.user - User override (optional)
-   * @param {string} params.reply_to - ID of message this is replying to (optional)
+   * All parameters are optional with sensible defaults.
+   *
+   * @param {string} topic - Message topic (required)
+   * @param {Object} options - Optional parameters
+   * @param {Object} options.payload - Message payload data (default: {})
+   * @param {Object} options.context - Context override (optional)
+   * @param {Object} options.user - User override (optional)
+   * @param {string} options.reply_to - ID of message this is replying to (optional)
+   * @param {Object} options.source - Source override for power routing (optional, server constructs by default)
    *
    * @example
-   * // Basic usage
+   * // Simple usage - just topic
+   * qiConnection.emit("wm.window.close")
+   *
+   * // With payload
    * qiConnection.emit("my.topic", {payload: {data: "value"}})
    *
    * // Reply to a message
    * qiConnection.emit("response", {payload: {result: "ok"}, reply_to: originalMsg.message_id})
    *
-   * // Override context
-   * qiConnection.emit("task.update", {payload: {status: "done"}, context: {project: "other-project"}})
+   * // Power routing - override source for advanced scenarios
+   * qiConnection.emit("cross.window.message", {
+   *   payload: {data: "value"},
+   *   source: {addon: "other-addon", session_id: "other-session", window_id: "target-window"}
+   * })
    */
-  emit(
-    topic,
-    {
+  emit(topic, options = {}) {
+    if (!qiConnection.connected) {
+      console.warn("Cannot send message: WebSocket not connected");
+      return;
+    }
+
+    const {
       payload = {},
       context = null,
-      source = null,
       user = null,
       reply_to = null,
-    } = {}
-  ) {
-    console.warn(
-      "qiConnection not initialized. Call initQiConnection() first."
-    );
+      source = null,
+    } = options;
+
+    // Build context: use provided context or default context
+    let finalContext;
+    if (context) {
+      finalContext = {
+        project:
+          context.project !== undefined
+            ? context.project
+            : qiConnection.context?.project || null,
+        entity:
+          context.entity !== undefined
+            ? context.entity
+            : qiConnection.context?.entity || null,
+        task:
+          context.task !== undefined
+            ? context.task
+            : qiConnection.context?.task || null,
+      };
+    } else {
+      finalContext = {
+        project: qiConnection.context?.project || null,
+        entity: qiConnection.context?.entity || null,
+        task: qiConnection.context?.task || null,
+      };
+    }
+
+    // Build source information for routing
+    // Server will construct authoritative source, but client can provide override for power routing
+    let finalSource = null;
+    if (source) {
+      // Power routing scenario - client explicitly provides source override
+      finalSource = {
+        addon: source.addon || qiConnection.addon,
+        session_id: source.session_id || qiConnection.session_id,
+        window_id:
+          source.window_id !== undefined
+            ? source.window_id
+            : qiConnection.window_id,
+        user:
+          source.user !== undefined
+            ? source.user
+            : user || qiConnection.user || null,
+      };
+
+      if (import.meta.env?.DEV) {
+        console.log(
+          "Power routing: Using custom source for",
+          topic,
+          finalSource
+        );
+      }
+    } else {
+      // Normal scenario - provide minimal source info, server will construct authoritative version
+      finalSource = {
+        addon: qiConnection.addon,
+        session_id: qiConnection.session_id,
+        window_id: qiConnection.window_id,
+        user: user || qiConnection.user || null,
+      };
+    }
+
+    // Build user information
+    const finalUser = user || qiConnection.user || null;
+
+    const envelope = {
+      message_id: crypto.randomUUID(),
+      topic,
+      payload,
+      context: finalContext,
+      source: finalSource,
+      user: finalUser,
+      reply_to: reply_to,
+      timestamp: Date.now() / 1000,
+    };
+
+    if (import.meta.env?.DEV) {
+      console.log(`${topic} → server`);
+    }
+
+    try {
+      qiConnection.socket.send(JSON.stringify(envelope));
+    } catch (error) {
+      console.error("Failed to send message:", error);
+    }
   },
 
   on(topic, handler) {
@@ -209,8 +300,7 @@ export const initQiConnection = async () => {
 
   // Initialize window_id with priority order:
   // 1. URL parameters (highest priority - from server)
-  // 2. pywebview API
-  // 3. Generate fallback
+  // 2. Generate fallback
 
   let window_id = null;
   const urlParams = new URLSearchParams(location.search);
@@ -219,56 +309,7 @@ export const initQiConnection = async () => {
   window_id = urlParams.get("window_id");
   if (window_id) {
     if (import.meta.env?.DEV) {
-      console.log("🪟 Window ID from URL parameter:", window_id);
-    }
-  } else {
-    // Try pywebview API as fallback
-    if (typeof window.pywebview !== "undefined" && window.pywebview.api) {
-      try {
-        const result = window.pywebview.api.get_window_id();
-        // Handle both sync and async results
-        if (result && typeof result.then === "function") {
-          // It's a Promise, wait for it
-          try {
-            window_id = await result;
-            if (import.meta.env?.DEV) {
-              console.log(
-                "🪟 Window ID from pywebview API (async):",
-                window_id
-              );
-            }
-          } catch (e) {
-            if (import.meta.env?.DEV) {
-              console.log("🪟 Failed to await window ID from pywebview API", e);
-            }
-          }
-        } else {
-          // It's a direct value
-          window_id = result;
-          if (import.meta.env?.DEV) {
-            console.log("🪟 Window ID from pywebview API (sync):", window_id);
-          }
-        }
-
-        if (import.meta.env?.DEV) {
-          console.log(
-            "🪟 pywebview API available:",
-            Object.keys(window.pywebview.api)
-          );
-        }
-      } catch (e) {
-        // pywebview API not available or method doesn't exist
-        if (import.meta.env?.DEV) {
-          console.log("🪟 Window ID not available from pywebview API", e);
-        }
-      }
-    } else {
-      if (import.meta.env?.DEV) {
-        console.log("🪟 pywebview not available", {
-          pywebview_exists: typeof window.pywebview !== "undefined",
-          api_exists: typeof window.pywebview?.api !== "undefined",
-        });
-      }
+      console.log("Window ID from URL parameter:", window_id);
     }
   }
 
@@ -276,17 +317,17 @@ export const initQiConnection = async () => {
   if (window_id && typeof window_id === "string") {
     qiConnection.window_id = window_id;
     if (import.meta.env?.DEV) {
-      console.log("🪟 Window ID set to:", window_id);
+      console.log("Window ID set to:", window_id);
     }
   } else {
-    // Fallback: generate a unique window ID if pywebview API isn't available
+    // Fallback: generate a unique window ID if URL parameter isn't available
     // This ensures each window instance has a unique identifier
     // Note: Don't use sessionStorage as it's shared between windows
     const fallback_window_id = `window_${crypto.randomUUID()}`;
     qiConnection.window_id = fallback_window_id;
 
     if (import.meta.env?.DEV) {
-      console.log("🪟 Generated fallback window ID:", fallback_window_id, {
+      console.log("Generated fallback window ID:", fallback_window_id, {
         received: window_id,
         type: typeof window_id,
       });
@@ -309,7 +350,7 @@ export const initQiConnection = async () => {
   if (needsNewConnection) {
     if (import.meta.env?.DEV && existingWs) {
       console.log(
-        "🔄 Previous WebSocket connection invalid, creating new one. State:",
+        "Previous WebSocket connection invalid, creating new one. State:",
         existingWs.readyState
       );
     }
@@ -324,7 +365,7 @@ export const initQiConnection = async () => {
 
       if (import.meta.env?.DEV) {
         console.log(
-          `🔗 WebSocket connected: session_id=${session_id}, window_id=${qiConnection.window_id?.slice(
+          `WebSocket connected: session_id=${session_id}, window_id=${qiConnection.window_id?.slice(
             0,
             8
           )}...`
@@ -335,14 +376,14 @@ export const initQiConnection = async () => {
     ws.addEventListener("close", () => {
       qiConnection.connected = false;
       if (import.meta.env?.DEV) {
-        console.log("🔌 WebSocket disconnected");
+        console.log("WebSocket disconnected");
       }
     });
 
     ws.addEventListener("error", (error) => {
       qiConnection.connected = false;
       if (import.meta.env?.DEV) {
-        console.error("❌ WebSocket error:", error);
+        console.error("WebSocket error:", error);
       }
     });
 
@@ -354,7 +395,7 @@ export const initQiConnection = async () => {
         // Handle heartbeat messages (simple JSON, not envelopes)
         if (data.pong === true || data.ping === true) {
           if (import.meta.env?.DEV && data.ping === true) {
-            console.log("💓 Received ping from server");
+            console.log("Received ping from server");
           }
           return;
         }
@@ -366,7 +407,7 @@ export const initQiConnection = async () => {
         // All messages received here are intended for this window
         if (import.meta.env?.DEV) {
           console.log(
-            `📥 ${envelope.topic} → window ${qiConnection.window_id?.slice(
+            `${envelope.topic} → window ${qiConnection.window_id?.slice(
               0,
               8
             )}...`
@@ -401,20 +442,19 @@ export const initQiConnection = async () => {
   qiConnection.connected = qiConnection.socket?.readyState === WebSocket.OPEN;
 
   // Initialize function implementations
-  qiConnection.emit = (
-    topic,
-    {
-      payload = {},
-      context = null,
-      source = null,
-      user = null,
-      reply_to = null,
-    } = {}
-  ) => {
+  qiConnection.emit = (topic, options = {}) => {
     if (!qiConnection.connected) {
       console.warn("Cannot send message: WebSocket not connected");
       return;
     }
+
+    const {
+      payload = {},
+      context = null,
+      user = null,
+      reply_to = null,
+      source = null,
+    } = options;
 
     // Build context: use provided context or default context
     let finalContext;
@@ -441,13 +481,40 @@ export const initQiConnection = async () => {
       };
     }
 
-    // Build source information (for routing)
-    const source = {
-      addon: qiConnection.addon,
-      session_id: qiConnection.session_id,
-      window_id: qiConnection.window_id,
-      user: user || qiConnection.user || null,
-    };
+    // Build source information for routing
+    // Server will construct authoritative source, but client can provide override for power routing
+    let finalSource = null;
+    if (source) {
+      // Power routing scenario - client explicitly provides source override
+      finalSource = {
+        addon: source.addon || qiConnection.addon,
+        session_id: source.session_id || qiConnection.session_id,
+        window_id:
+          source.window_id !== undefined
+            ? source.window_id
+            : qiConnection.window_id,
+        user:
+          source.user !== undefined
+            ? source.user
+            : user || qiConnection.user || null,
+      };
+
+      if (import.meta.env?.DEV) {
+        console.log(
+          "Power routing: Using custom source for",
+          topic,
+          finalSource
+        );
+      }
+    } else {
+      // Normal scenario - provide minimal source info, server will construct authoritative version
+      finalSource = {
+        addon: qiConnection.addon,
+        session_id: qiConnection.session_id,
+        window_id: qiConnection.window_id,
+        user: user || qiConnection.user || null,
+      };
+    }
 
     // Build user information
     const finalUser = user || qiConnection.user || null;
@@ -455,16 +522,16 @@ export const initQiConnection = async () => {
     const envelope = {
       message_id: crypto.randomUUID(),
       topic,
-      payload: payload || {},
+      payload,
       context: finalContext,
-      source: source,
+      source: finalSource,
       user: finalUser,
       reply_to: reply_to,
       timestamp: Date.now() / 1000,
     };
 
     if (import.meta.env?.DEV) {
-      console.log(`📤 ${topic} → server`);
+      console.log(`${topic} → server`);
     }
 
     try {
@@ -481,7 +548,7 @@ export const initQiConnection = async () => {
     _messageHandlers.get(topic).add(handler);
 
     if (import.meta.env?.DEV) {
-      console.log(`📝 Handler registered: ${topic}`);
+      console.log(`Handler registered: ${topic}`);
     }
 
     return () => qiConnection.off(topic, handler);
@@ -496,8 +563,14 @@ export const initQiConnection = async () => {
       }
 
       if (import.meta.env?.DEV) {
-        console.log(`📝 Unregistered handler for topic: "${topic}"`);
+        console.log(`Unregistered handler for topic: "${topic}"`);
       }
     }
   };
+
+  // Set up window subscriptions
+  const { setupWindowSubscriptions } = await import(
+    "./qi.windowSubscriptions.svelte"
+  );
+  setupWindowSubscriptions();
 };

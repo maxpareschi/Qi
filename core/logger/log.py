@@ -61,10 +61,11 @@ class QiCustomFormatter(logging.Formatter):
 
         # Apply the color formatting (matching the colorlog format exactly)
         colored_format = (
-            f"{COLORS['light_black']}{record.asctime}{COLORS['reset']} | "
+            # f"{COLORS['light_black']}{record.asctime}{COLORS['reset']} | "
             f"{log_color}{record.levelname:<8}{COLORS['reset']} | "
-            f"{message_color}{record.getMessage()}{COLORS['reset']} "
-            f"{COLORS['light_black']}- ({record.name}.{record.funcName} - {record.filename}:{record.lineno}){COLORS['reset']}"
+            f"{message_color}{record.name:<20} | "
+            f"{record.getMessage()}{COLORS['reset']} "
+            f"{COLORS['light_black']}- ({record.funcName} - {record.filename}:{record.lineno}){COLORS['reset']}"
         )
 
         return colored_format
