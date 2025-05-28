@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import uuid
 from typing import Any, Callable
@@ -84,6 +85,9 @@ class QiWindow:
         self.window = webview.create_window(title, **launch_kwargs)
         self.window.events.loaded += self._on_loaded
         self.window.events.closed += self._on_closed
+        self.window.events.minimized += self._on_minimized
+        self.window.events.maximized += self._on_maximized
+        self.window.events.restored += self._on_restored
         for method in self._api_methods:
             self.window.expose(method)
 
@@ -95,13 +99,55 @@ class QiWindow:
         self.show()
         self.state["hidden"] = False
 
+    def _on_minimized(self) -> None:
+        """Event handler for when the window is minimized by user (native controls)."""
+        log.debug(f"Window {self.uuid[:8]}... minimized via native controls")
+        self.state["minimized"] = True
+
+    def _on_maximized(self) -> None:
+        """Event handler for when the window is maximized by user (native controls)."""
+        log.debug(f"Window {self.uuid[:8]}... maximized via native controls")
+        self.state["maximized"] = True
+        self.state["minimized"] = False
+
+    def _on_restored(self) -> None:
+        """Event handler for when the window is restored by user (native controls)."""
+        log.debug(f"Window {self.uuid[:8]}... restored via native controls")
+        self.state["maximized"] = False
+        self.state["minimized"] = False
+
     def _on_closed(self) -> None:
         """Event handler for when the window is closed by the user.
-        Notifies the window manager to clean up tracking."""
+        Emits bus message for cleanup and notification."""
 
         log.debug(f"Window {self.uuid[:8]}... closed by user")
+
+        # Emit bus message for window closure (run in new event loop since pywebview doesn't have one)
+        try:
+            asyncio.run(self._emit_window_closed())
+        except Exception as e:
+            log.error(f"Failed to emit window closed message: {e}")
+
+        # Still call callback for backwards compatibility during transition
         if self._on_close_callback:
             self._on_close_callback(self.uuid)
+
+    async def _emit_window_closed(self) -> None:
+        """Emit bus message when window is closed."""
+        try:
+            from core.server.bus import qi_bus
+
+            await qi_bus.emit(
+                "wm.window.closed_by_user",
+                payload={"window_uuid": self.uuid},
+                source={
+                    "session": self.session,
+                    "window_uuid": self.uuid,
+                    "addon": self.addon,
+                },
+            )
+        except Exception as e:
+            log.error(f"Failed to emit window closed message: {e}")
 
     def get_session(self) -> str:
         """Get the session of the window.

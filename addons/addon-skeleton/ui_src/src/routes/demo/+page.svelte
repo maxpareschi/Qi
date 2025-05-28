@@ -4,6 +4,7 @@
 
   let windows = $state([]);
   let pingResponse = $state(null);
+  let errorMessages = $state([]);
 
   // Store unsubscribe functions for cleanup
   let unsubscribeFunctions = [];
@@ -18,19 +19,18 @@
     );
 
     unsubscribeFunctions.push(
-      qiConnection.on("wm.window.opened", (envelope) => {
-        console.log("Window opened:", envelope.payload);
-        // Refresh the window list
-        qiConnection.emit("wm.window.list_all", { payload: {} });
-      })
+      qiConnection.on("wm.window.opened", refreshList)
     );
 
+    // Refresh window list when windows are closed or opened
+    const refreshList = () => qiConnection.emit("wm.window.list_all", { payload: {} });
+    
     unsubscribeFunctions.push(
-      qiConnection.on("wm.window.closed", (envelope) => {
-        console.log("Window closed:", envelope.payload);
-        // Refresh the window list
-        qiConnection.emit("wm.window.list_all", { payload: {} });
-      })
+      qiConnection.on("wm.window.closed", refreshList)
+    );
+    
+    unsubscribeFunctions.push(
+      qiConnection.on("wm.window.closed_by_user", refreshList)
     );
 
     unsubscribeFunctions.push(
@@ -39,6 +39,30 @@
         pingResponse = envelope.payload;
       })
     );
+
+
+
+    // Error handling - listen for all error topics
+    const errorTopics = [
+      "wm.window.operation_failed",
+      "wm.window.close_failed",
+      "wm.window.invoke_failed",
+    ];
+
+    errorTopics.forEach((topic) => {
+      unsubscribeFunctions.push(
+        qiConnection.on(topic, (envelope) => {
+          console.error(`❌ ${topic}:`, envelope.payload);
+          const errorMsg = {
+            timestamp: new Date().toLocaleTimeString(),
+            topic,
+            error: envelope.payload.error,
+            operation: envelope.payload.operation || "unknown",
+          };
+          errorMessages = [errorMsg, ...errorMessages.slice(0, 9)]; // Keep last 10 errors
+        })
+      );
+    });
   });
 
   onDestroy(() => {
@@ -70,6 +94,18 @@
       payload: { timestamp: new Date().toISOString() },
     });
   };
+
+  const minimizeWindow = (window_uuid) => {
+    qiConnection.emit("wm.window.minimize", { payload: { window_uuid } });
+  };
+
+  const maximizeWindow = (window_uuid) => {
+    qiConnection.emit("wm.window.maximize", { payload: { window_uuid } });
+  };
+
+  const clearErrors = () => {
+    errorMessages = [];
+  };
 </script>
 
 <button onclick={() => (location.href = "/addon-skeleton")}
@@ -83,14 +119,15 @@
     <h3>Connection Info</h3>
     <div class="info-grid">
       <div><strong>Session:</strong> {qiConnection.session}</div>
-      <div
-        ><strong>Window UUID:</strong>
-        {qiConnection.window_uuid?.slice(0, 8)}...</div
-      >
+      <div>
+        <strong>Window UUID:</strong>
+        {qiConnection.window_uuid?.slice(0, 8)}...
+      </div>
       <div><strong>Addon:</strong> {qiConnection.addon}</div>
-      <div
-        ><strong>Connected:</strong> {qiConnection.connected ? "✅" : "❌"}</div
-      >
+      <div>
+        <strong>Connected:</strong>
+        {qiConnection.connected ? "✅" : "❌"}
+      </div>
     </div>
     <details>
       <summary>Full Context</summary>
@@ -112,18 +149,47 @@
     </div>
   {/if}
 
+  {#if errorMessages.length > 0}
+    <div class="ping-response">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"
+      >
+        <h3>Recent Errors ({errorMessages.length})</h3>
+        <button class="border" onclick={clearErrors}>Clear</button>
+      </div>
+      {#each errorMessages as error}
+        <div class="window-item">
+          <span>{error.timestamp} - {error.topic} ({error.operation})</span>
+          <span style="color: var(--text-color-hover);">{error.error}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <div class="windows-list">
     <h3>Active Windows ({windows.length})</h3>
     {#each windows as window}
       <div class="window-item">
-        <span>{window.window_uuid} - {window.addon}</span>
-        <button onclick={() => closeWindow(window.window_uuid)}>Close</button>
+        <span>{window.window_uuid.slice(0, 8)}... - {window.addon}</span>
+        <div style="display: flex; gap: 0.5rem;">
+          <button
+            class="border"
+            onclick={() => minimizeWindow(window.window_uuid)}>Min</button
+          >
+          <button
+            class="border"
+            onclick={() => maximizeWindow(window.window_uuid)}>Max</button
+          >
+          <button class="border" onclick={() => closeWindow(window.window_uuid)}
+            >Close</button
+          >
+        </div>
       </div>
     {:else}
-      <p
-        >No windows found. Click "List Windows" to refresh or "Create Window" to
-        add one.</p
-      >
+      <p>
+        No windows found. Click "List Windows" to refresh or "Create Window" to
+        add one.
+      </p>
     {/each}
   </div>
 </div>

@@ -1,5 +1,4 @@
 import { browser } from "$app/environment";
-import { windowState } from "$lib/states/qi.windowState.svelte";
 
 /**
  * Helper to get a context field from multiple sources in priority order
@@ -105,7 +104,9 @@ export const qiConnection = $state({
    * @param {string} topic - Message topic
    * @param {Object} params - Named parameters
    * @param {Object} params.payload - Message payload data (default: {})
-   * @param {Object} params.context - Context override (optional)
+   * @param {Object} params.context - Business context override (project/entity/task) (optional)
+   * @param {Object} params.source - Source context override (session/window_uuid/addon) (optional)
+   * @param {Object} params.user - User context override (username/auth_data) (optional)
    * @param {string} params.reply_to - UUID of message this is replying to (optional)
    *
    * @example
@@ -115,10 +116,22 @@ export const qiConnection = $state({
    * // Reply to a message
    * qiConnection.emit("response", {payload: {result: "ok"}, reply_to: originalMsg.message_id})
    *
-   * // Override context
+   * // Override business context
    * qiConnection.emit("task.update", {payload: {status: "done"}, context: {project: "other-project"}})
+   *
+   * // Override user context
+   * qiConnection.emit("user.action", {payload: {action: "save"}, user: {username: "admin"}})
    */
-  emit(topic, { payload = {}, context = null, reply_to = null } = {}) {
+  emit(
+    topic,
+    {
+      payload = {},
+      context = null,
+      source = null,
+      user = null,
+      reply_to = null,
+    } = {}
+  ) {
     console.warn(
       "qiConnection not initialized. Call initQiConnection() first."
     );
@@ -393,51 +406,60 @@ export const initQiConnection = async () => {
   // Initialize function implementations
   qiConnection.emit = (
     topic,
-    { payload = {}, context = null, reply_to = null } = {}
+    {
+      payload = {},
+      context = null,
+      source = null,
+      user = null,
+      reply_to = null,
+    } = {}
   ) => {
     if (!qiConnection.connected) {
       console.warn("Cannot send message: WebSocket not connected");
       return;
     }
 
-    // Proper context merging: if custom context provided, use it as base and fill in missing fields
-    let finalContext;
-    if (context) {
+    // Build business context (project/entity/task only)
+    let finalContext = null;
+    if (context || qiConnection.context) {
       finalContext = {
-        project:
-          context.project !== undefined
-            ? context.project
-            : qiConnection.context?.project || null,
-        entity:
-          context.entity !== undefined
-            ? context.entity
-            : qiConnection.context?.entity || null,
-        task:
-          context.task !== undefined
-            ? context.task
-            : qiConnection.context?.task || null,
-        session: qiConnection.session, // Always use current session
-        window_uuid:
-          context.window_uuid !== undefined
-            ? context.window_uuid
-            : qiConnection.window_uuid || null,
+        project: context?.project ?? qiConnection.context?.project ?? null,
+        entity: context?.entity ?? qiConnection.context?.entity ?? null,
+        task: context?.task ?? qiConnection.context?.task ?? null,
       };
-    } else {
-      finalContext = {
-        project: qiConnection.context?.project || null,
-        entity: qiConnection.context?.entity || null,
-        task: qiConnection.context?.task || null,
-        session: qiConnection.session,
-        window_uuid: qiConnection.window_uuid || null,
+      // Remove null values for cleaner envelope
+      finalContext = Object.fromEntries(
+        Object.entries(finalContext).filter(([_, v]) => v !== null)
+      );
+      if (Object.keys(finalContext).length === 0) finalContext = null;
+    }
+
+    // Build source context (session/window_uuid/addon)
+    let finalSource = {
+      session: source?.session ?? qiConnection.session,
+      window_uuid: source?.window_uuid ?? qiConnection.window_uuid ?? null,
+      addon: source?.addon ?? qiConnection.addon ?? null,
+    };
+    // Remove null values for cleaner envelope
+    finalSource = Object.fromEntries(
+      Object.entries(finalSource).filter(([_, v]) => v !== null)
+    );
+
+    // Build user context (username/auth_data) - optional
+    let finalUser = null;
+    if (user) {
+      finalUser = {
+        username: user.username ?? "anonymous",
+        auth_data: user.auth_data ?? {},
       };
     }
 
     // Extra safety check - ensure window_uuid is never an object
     if (
-      finalContext.window_uuid &&
-      typeof finalContext.window_uuid !== "string"
+      finalSource.window_uuid &&
+      typeof finalSource.window_uuid !== "string"
     ) {
-      finalContext.window_uuid = null;
+      finalSource.window_uuid = null;
       if (import.meta.env?.DEV) {
         console.warn("🚨 window_uuid was not a string, setting to null");
       }
@@ -448,6 +470,8 @@ export const initQiConnection = async () => {
       topic,
       payload: payload || {},
       context: finalContext,
+      source: finalSource,
+      user: finalUser,
       reply_to: reply_to,
       timestamp: Date.now() / 1000,
     };

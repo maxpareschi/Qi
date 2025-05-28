@@ -8,11 +8,20 @@ log = logger.get_logger(__name__)
 
 
 def get_session(envelope: QiEnvelope) -> str:
-    """Helper to safely extract session from envelope context."""
+    """Helper to safely extract session from envelope source."""
     return (
-        envelope.context.session
-        if envelope.context and envelope.context.session
+        envelope.source.session
+        if envelope.source and envelope.source.session
         else "unknown"
+    )
+
+
+def get_window_uuid(envelope: QiEnvelope) -> str | None:
+    """Helper to safely extract window_uuid from envelope source."""
+    return (
+        envelope.source.window_uuid
+        if envelope.source and envelope.source.window_uuid
+        else None
     )
 
 
@@ -29,6 +38,9 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
         await qi_bus.emit(
             "test.pong",
             payload={"received": envelope.payload},
+            context=envelope.context,
+            source=envelope.source,
+            user=envelope.user,
             reply_to=envelope.message_id,
         )
 
@@ -44,6 +56,9 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
                 "original_message": envelope.payload.get("message", ""),
                 "server_timestamp": time.time(),
             },
+            context=envelope.context,
+            source=envelope.source,
+            user=envelope.user,
             reply_to=envelope.message_id,
         )
 
@@ -59,10 +74,13 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
         window_uuid = wm.create_window(addon=addon, session=session)
         log.info(f"Created window with UUID: {window_uuid}")
 
-        # Send response with the created window
+        # Send response with the created window, inheriting context and user
         await qi_bus.emit(
             "wm.window.opened",
             payload={"window_uuid": window_uuid, "addon": addon},
+            context=envelope.context,
+            source={"session": session, "addon": addon},
+            user=envelope.user,
             reply_to=envelope.message_id,
         )
 
@@ -78,6 +96,9 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
         await qi_bus.emit(
             "wm.window.listed",
             payload={"windows": windows},
+            context=envelope.context,
+            source=envelope.source,
+            user=envelope.user,
             reply_to=envelope.message_id,
         )
 
@@ -85,7 +106,6 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
     async def _list_all(envelope: QiEnvelope) -> None:
         """List all windows."""
 
-        session = get_session(envelope)
         windows = wm.list_all()
 
         # Debug: Check bus vs window manager tracking
@@ -98,6 +118,9 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
         await qi_bus.emit(
             "wm.window.listed",
             payload={"windows": windows},
+            context=envelope.context,
+            source=envelope.source,
+            user=envelope.user,
             reply_to=envelope.message_id,
         )
 
@@ -105,26 +128,241 @@ def register_window_manager_handlers(wm: QiWindowManager) -> None:
     async def _close(envelope: QiEnvelope) -> None:
         """Close a window."""
 
-        session = get_session(envelope)
-        log.info(f"Closing window {envelope.payload['window_uuid']}")
-        wm.close(envelope.payload["window_uuid"])
-        await qi_bus.emit(
-            "wm.window.closed",
-            payload={"window_uuid": envelope.payload["window_uuid"]},
-            reply_to=envelope.message_id,
-        )
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            log.info(f"Closing window {window_uuid}")
+
+            result = wm.close(window_uuid)
+            if result:
+                await qi_bus.emit(
+                    "wm.window.closed",
+                    payload={"window_uuid": window_uuid, "closed_by": "request"},
+                    context=envelope.context,
+                    source=envelope.source,
+                    user=envelope.user,
+                    reply_to=envelope.message_id,
+                )
+            else:
+                await qi_bus.emit(
+                    "wm.window.close_failed",
+                    payload={"window_uuid": window_uuid, "error": "Window not found"},
+                    context=envelope.context,
+                    source=envelope.source,
+                    user=envelope.user,
+                    reply_to=envelope.message_id,
+                )
+        except KeyError:
+            log.error("Missing window_uuid in close request")
+            await qi_bus.emit(
+                "wm.window.close_failed",
+                payload={"error": "Missing window_uuid"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
 
     @qi_bus.on("wm.window.invoke")
     async def _invoke(envelope: QiEnvelope) -> None:
         """Invoke a method on a window."""
 
-        log.info(
-            f"Invoking method {envelope.payload['method']} on window {envelope.payload['window_uuid']}"
-        )
-        wm.invoke(
-            envelope.payload["window_uuid"],
-            envelope.payload["method"],
-            *envelope.payload.get("args", []),
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            method = envelope.payload["method"]
+            args = envelope.payload.get("args", [])
+
+            log.info(f"Invoking method {method} on window {window_uuid}")
+            result = wm.invoke(window_uuid, method, *args)
+
+            await qi_bus.emit(
+                "wm.window.invoked",
+                payload={
+                    "window_uuid": window_uuid,
+                    "method": method,
+                    "result": result,
+                },
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except KeyError as e:
+            log.error(f"Missing required field in invoke request: {e}")
+            await qi_bus.emit(
+                "wm.window.invoke_failed",
+                payload={"error": f"Missing required field: {e}"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except Exception as e:
+            log.error(f"Failed to invoke method on window: {e}")
+            await qi_bus.emit(
+                "wm.window.invoke_failed",
+                payload={"error": str(e)},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+
+    # Window operation handlers - replacing direct callbacks
+    @qi_bus.on("wm.window.minimize")
+    async def _minimize(envelope: QiEnvelope) -> None:
+        """Minimize a window."""
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            log.info(f"Minimizing window {window_uuid}")
+            wm.invoke(window_uuid, "minimize")
+            await qi_bus.emit(
+                "wm.window.minimized",
+                payload={"window_uuid": window_uuid},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except KeyError:
+            log.error("Missing window_uuid in minimize request")
+            await qi_bus.emit(
+                "wm.window.operation_failed",
+                payload={"error": "Missing window_uuid", "operation": "minimize"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except Exception as e:
+            log.error(f"Failed to minimize window: {e}")
+            await qi_bus.emit(
+                "wm.window.operation_failed",
+                payload={"error": str(e), "operation": "minimize"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+
+    @qi_bus.on("wm.window.maximize")
+    async def _maximize(envelope: QiEnvelope) -> None:
+        """Maximize a window."""
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            log.info(f"Maximizing window {window_uuid}")
+            wm.invoke(window_uuid, "maximize")
+            await qi_bus.emit(
+                "wm.window.maximized",
+                payload={"window_uuid": window_uuid},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except (KeyError, Exception) as e:
+            await qi_bus.emit(
+                "wm.window.operation_failed",
+                payload={"error": str(e), "operation": "maximize"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+
+    @qi_bus.on("wm.window.restore")
+    async def _restore(envelope: QiEnvelope) -> None:
+        """Restore a window."""
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            log.info(f"Restoring window {window_uuid}")
+            wm.invoke(window_uuid, "restore")
+            await qi_bus.emit(
+                "wm.window.restored",
+                payload={"window_uuid": window_uuid},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except (KeyError, Exception) as e:
+            await qi_bus.emit(
+                "wm.window.operation_failed",
+                payload={"error": str(e), "operation": "restore"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+
+    @qi_bus.on("wm.window.hide")
+    async def _hide(envelope: QiEnvelope) -> None:
+        """Hide a window."""
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            log.info(f"Hiding window {window_uuid}")
+            wm.invoke(window_uuid, "hide")
+            await qi_bus.emit(
+                "wm.window.hidden",
+                payload={"window_uuid": window_uuid},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except (KeyError, Exception) as e:
+            await qi_bus.emit(
+                "wm.window.operation_failed",
+                payload={"error": str(e), "operation": "hide"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+
+    @qi_bus.on("wm.window.show")
+    async def _show(envelope: QiEnvelope) -> None:
+        """Show a window."""
+        try:
+            window_uuid = envelope.payload["window_uuid"]
+            log.info(f"Showing window {window_uuid}")
+            wm.invoke(window_uuid, "show")
+            await qi_bus.emit(
+                "wm.window.shown",
+                payload={"window_uuid": window_uuid},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+        except (KeyError, Exception) as e:
+            await qi_bus.emit(
+                "wm.window.operation_failed",
+                payload={"error": str(e), "operation": "show"},
+                context=envelope.context,
+                source=envelope.source,
+                user=envelope.user,
+                reply_to=envelope.message_id,
+            )
+
+    # Handler for user-initiated window closure
+    @qi_bus.on("wm.window.closed_by_user")
+    async def _window_closed_by_user(envelope: QiEnvelope) -> None:
+        """Handle window closed by user - cleanup and notify."""
+        window_uuid = envelope.payload["window_uuid"]
+        session = get_session(envelope)
+        log.info(f"Window {window_uuid} closed by user in session {session}")
+
+        # Clean up window tracking in manager
+        if hasattr(wm, "_on_window_closed"):
+            wm._on_window_closed(window_uuid)
+
+        # Broadcast closure notification
+        await qi_bus.emit(
+            "wm.window.closed",
+            payload={"window_uuid": window_uuid, "closed_by": "user"},
+            context=envelope.context,
+            source=envelope.source,
+            user=envelope.user,
         )
 
     # Check which handlers are registered

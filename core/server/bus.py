@@ -37,27 +37,11 @@ qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
 class QiContext(BaseModel):
+    """Business context - project workflow concerns only."""
+
     project: Optional[str] = None
     entity: Optional[str] = None
     task: Optional[str] = None
-    session: Optional[str] = None
-    window_uuid: Optional[str] = None  # Identifies specific window within session
-
-    @field_validator("window_uuid", mode="before")
-    @classmethod
-    def validate_window_uuid(cls, v):
-        """Handle window_uuid validation - convert invalid values to None."""
-        if v is None:
-            return None
-        if v == {} or v == "" or v == []:
-            return None
-        if isinstance(v, dict):
-            log.warning(f"window_uuid received as dict: {v}, converting to None")
-            return None
-        if not isinstance(v, str):
-            log.warning(f"window_uuid received as {type(v)}: {v}, converting to None")
-            return None
-        return v
 
     @classmethod
     def from_env(cls) -> "QiContext":
@@ -65,8 +49,38 @@ class QiContext(BaseModel):
             project=os.getenv("QI_PROJECT"),
             entity=os.getenv("QI_ENTITY"),
             task=os.getenv("QI_TASK"),
-            session=os.getenv("QI_SESSION"),
-            window_uuid=os.getenv("QI_WINDOW_UUID"),  # Usually set by client
+        )
+
+
+class QiSource(BaseModel):
+    """Routing/technical context - identifies message origin."""
+
+    session: str
+    window_uuid: Optional[str] = None
+    addon: Optional[str] = None
+
+    @classmethod
+    def from_env(
+        cls, session: str, window_uuid: str = None, addon: str = None
+    ) -> "QiSource":
+        return cls(
+            session=session or os.getenv("QI_SESSION", "unknown"),
+            window_uuid=window_uuid or os.getenv("QI_WINDOW_UUID"),
+            addon=addon or os.getenv("QI_ADDON"),
+        )
+
+
+class QiUser(BaseModel):
+    """Identity/auth context - who sent the message."""
+
+    username: str
+    auth_data: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_env(cls, username: str = None) -> "QiUser":
+        return cls(
+            username=username or os.getenv("QI_USERNAME", "unknown"),
+            auth_data={},
         )
 
 
@@ -84,6 +98,8 @@ class QiEnvelope(BaseModel):
     topic: str = Field(default="")
     payload: dict[str, Any] = Field(default_factory=dict)
     context: Optional[QiContext] = Field(default=None)
+    source: Optional[QiSource] = Field(default=None)
+    user: Optional[QiUser] = Field(default=None)
     reply_to: Optional[UUID] = Field(default=None)
     timestamp: float = Field(default_factory=time.time)
 
@@ -215,6 +231,8 @@ class QiEventBus(metaclass=_Singleton):
         *,
         payload: dict[str, Any] | None = None,
         context: dict[str, Any] | QiContext | None = None,
+        source: dict[str, Any] | QiSource | None = None,
+        user: dict[str, Any] | QiUser | None = None,
         reply_to: UUID | str | None = None,
     ) -> None:
         """Send a message."""
@@ -223,9 +241,25 @@ class QiEventBus(metaclass=_Singleton):
         if isinstance(context, dict):
             ctx = QiContext(**context)
         elif context is None:
-            ctx = QiContext()
+            ctx = None
         else:
             ctx = context
+
+        # Handle source
+        if isinstance(source, dict):
+            src = QiSource(**source)
+        elif source is None:
+            src = None
+        else:
+            src = source
+
+        # Handle user
+        if isinstance(user, dict):
+            usr = QiUser(**user)
+        elif user is None:
+            usr = None
+        else:
+            usr = user
 
         # Handle reply_to
         reply_uuid = None
@@ -238,21 +272,33 @@ class QiEventBus(metaclass=_Singleton):
             else:
                 reply_uuid = reply_to
 
-        # Auto-inherit context for replies
-        if reply_uuid and context is None:
+        # Auto-inherit context/source/user for replies
+        if reply_uuid and (context is None or source is None or user is None):
             original_msg = self._message_registry.get(reply_uuid)
-            if original_msg and original_msg.context:
-                ctx = QiContext(
-                    project=original_msg.context.project,
-                    entity=original_msg.context.entity,
-                    task=original_msg.context.task,
-                    session=original_msg.context.session,
-                    window_uuid=original_msg.context.window_uuid,
-                )
+            if original_msg:
+                if context is None and original_msg.context:
+                    ctx = QiContext(
+                        project=original_msg.context.project,
+                        entity=original_msg.context.entity,
+                        task=original_msg.context.task,
+                    )
+                if source is None and original_msg.source:
+                    src = QiSource(
+                        session=original_msg.source.session,
+                        window_uuid=original_msg.source.window_uuid,
+                        addon=original_msg.source.addon,
+                    )
+                if user is None and original_msg.user:
+                    usr = QiUser(
+                        username=original_msg.user.username,
+                        auth_data=original_msg.user.auth_data.copy(),
+                    )
 
         envelope = QiEnvelope(
             topic=topic,
             context=ctx,
+            source=src,
+            user=usr,
             reply_to=reply_uuid,
             payload=payload or {},
         )
@@ -290,14 +336,14 @@ class QiEventBus(metaclass=_Singleton):
         original_msg = self._message_registry.get(envelope.reply_to)
         if (
             not original_msg
-            or not original_msg.context
-            or not original_msg.context.session
+            or not original_msg.source
+            or not original_msg.source.session
         ):
             log.warning(f"Cannot route reply for {envelope.reply_to}")
             return
 
-        target_session = original_msg.context.session
-        target_window_uuid = original_msg.context.window_uuid
+        target_session = original_msg.source.session
+        target_window_uuid = original_msg.source.window_uuid
 
         # Try window-specific routing first
         if target_window_uuid and target_session in self._windows:
@@ -329,13 +375,9 @@ class QiEventBus(metaclass=_Singleton):
     async def _send_message(self, envelope: QiEnvelope) -> None:
         """Send message with window-specific targeting or broadcast."""
         # Check if message has window targeting
-        if (
-            envelope.context
-            and envelope.context.window_uuid
-            and envelope.context.session
-        ):
-            target_session = envelope.context.session
-            target_window_uuid = envelope.context.window_uuid
+        if envelope.source and envelope.source.window_uuid and envelope.source.session:
+            target_session = envelope.source.session
+            target_window_uuid = envelope.source.window_uuid
 
             # Send to specific window
             if target_session in self._windows:
