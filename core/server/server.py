@@ -1,11 +1,11 @@
 # main.py
 import os
-from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from core import logger
-from core.bus import QiEventBus
+from core.bus import QiConnectionSource, QiMessageBus
 from core.server.middleware import (
     QiDevProxyMiddleware,
     QiSPAStaticFilesMiddleware,
@@ -16,48 +16,38 @@ log = logger.get_logger(__name__)
 qi_dev_mode: bool = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
-async def websocket_handler(
-    websocket: WebSocket, session_id: str, window_id: Optional[str] = None
-):
-    """Handle WebSocket connections for real-time communication."""
+qi_server = FastAPI(
+    title="Qi Core Server",
+    version="1.0.0",
+    description="WebSocket-based communication server for Qi framework.",
+)
 
-    # Get the singleton bus instance
-    bus = QiEventBus()
+
+@qi_server.get("/")
+async def root():
+    return {"message": "Qi - Fastapi local server is running!"}
+
+
+@qi_server.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    await ws.accept()
+
+    init = await ws.receive_json()
+    try:
+        source = QiConnectionSource(**init)
+    except ValidationError:
+        await ws.close(code=4401)
+        return
+
+    bus = QiMessageBus()
 
     try:
-        log.debug(
-            f"WebSocket connection: session={session_id[:8]}..., window={window_id[:8] if window_id else 'default'}..."
-        )
-        await bus.connect(websocket, session_id, window_id)
+        await bus.connect(ws, source)
     except WebSocketDisconnect:
-        log.debug(f"WebSocket disconnected: session={session_id[:8]}...")
+        log.debug(f"WebSocket disconnected: source={source}")
+        bus._connections.unregister(bus._connections.by_source_id())
     except Exception as e:
         log.error(f"WebSocket error: {e}")
-
-
-def create_server() -> FastAPI:
-    """Create and configure the FastAPI server."""
-
-    app = FastAPI(
-        title="Qi Core Server",
-        version="1.0.0",
-        description="WebSocket-based communication server for Qi framework.",
-    )
-
-    @app.websocket("/ws")
-    async def websocket_endpoint(
-        websocket: WebSocket, session_id: str, window_id: Optional[str] = None
-    ):
-        await websocket_handler(websocket, session_id, window_id)
-
-    @app.get("/")
-    async def root():
-        return {"message": "Qi - Fastapi local server is running!"}
-
-    return app
-
-
-qi_server = create_server()
 
 
 if qi_dev_mode:

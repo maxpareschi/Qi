@@ -43,6 +43,7 @@ Handler: TypeAlias = Callable[[QiEvent], Awaitable | None]
 class QiConnection:
     """WebSocket connection with metadata."""
 
+    connection_id: str
     websocket: WebSocket
     session_id: str
     addon: str | None = None
