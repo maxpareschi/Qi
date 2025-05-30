@@ -1,4 +1,3 @@
-from core import logger
 from core.bus import (
     QiEvent,
     QiEventBus,
@@ -7,8 +6,9 @@ from core.bus import (
     get_window_id_from_source,
 )
 from core.gui.window_manager import QiWindowManager
+from core.logger import get_logger
 
-log = logger.get_logger(__name__)
+log = get_logger(__name__)
 
 
 def bind_window_manager(wm: QiWindowManager) -> None:
@@ -101,7 +101,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _invoke(envelope: QiEvent) -> None:
         """Invoke a method on a window."""
         if not envelope.payload:
-            logger.warning("Invoke request missing payload")
+            log.warning("Invoke request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
@@ -109,7 +109,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
         args = envelope.payload.get("args", [])
 
         if not window_id or not method:
-            logger.warning("Invoke request missing window_id or method")
+            log.warning("Invoke request missing window_id or method")
             return
 
         result = wm.invoke(window_id, method, *args)
@@ -125,12 +125,12 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _minimize(envelope: QiEvent) -> None:
         """Minimize a window."""
         if not envelope.payload:
-            logger.warning("Minimize request missing payload")
+            log.warning("Minimize request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
         if not window_id:
-            logger.warning("Minimize request missing window_id")
+            log.warning("Minimize request missing window_id")
             return
 
         window = wm.get_window(window_id)
@@ -159,12 +159,12 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _maximize(envelope: QiEvent) -> None:
         """Maximize or restore a window."""
         if not envelope.payload:
-            logger.warning("Maximize request missing payload")
+            log.warning("Maximize request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
         if not window_id:
-            logger.warning("Maximize request missing window_id")
+            log.warning("Maximize request missing window_id")
             return
 
         window = wm.get_window(window_id)
@@ -213,12 +213,12 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _restore(envelope: QiEvent) -> None:
         """Restore a window."""
         if not envelope.payload:
-            logger.warning("Restore request missing payload")
+            log.warning("Restore request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
         if not window_id:
-            logger.warning("Restore request missing window_id")
+            log.warning("Restore request missing window_id")
             return
 
         window = wm.get_window(window_id)
@@ -247,7 +247,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _move(envelope: QiEvent) -> None:
         """Move a window to specified coordinates."""
         if not envelope.payload:
-            logger.warning("Move request missing payload")
+            log.warning("Move request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
@@ -255,7 +255,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
         y = envelope.payload.get("y")
 
         if not window_id or x is None or y is None:
-            logger.warning("Move request missing required parameters")
+            log.warning("Move request missing required parameters")
             return
 
         window = wm.get_window(window_id)
@@ -284,7 +284,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _resize(envelope: QiEvent) -> None:
         """Resize a window."""
         if not envelope.payload:
-            logger.warning("Resize request missing payload")
+            log.warning("Resize request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
@@ -293,7 +293,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
         edge = envelope.payload.get("edge", "bottom-right")
 
         if not window_id or width is None or height is None:
-            logger.warning("Resize request missing required parameters")
+            log.warning("Resize request missing required parameters")
             return
 
         window = wm.get_window(window_id)
@@ -350,12 +350,12 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _hide(envelope: QiEvent) -> None:
         """Hide a window."""
         if not envelope.payload:
-            logger.warning("Hide request missing payload")
+            log.warning("Hide request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
         if not window_id:
-            logger.warning("Hide request missing window_id")
+            log.warning("Hide request missing window_id")
             return
 
         window = wm.get_window(window_id)
@@ -384,12 +384,12 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _show(envelope: QiEvent) -> None:
         """Show a window."""
         if not envelope.payload:
-            logger.warning("Show request missing payload")
+            log.warning("Show request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
         if not window_id:
-            logger.warning("Show request missing window_id")
+            log.warning("Show request missing window_id")
             return
 
         window = wm.get_window(window_id)
@@ -433,7 +433,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
     async def _get_window_state(envelope: QiEvent) -> None:
         """Get the current state of a window."""
         if not envelope.payload:
-            logger.warning("Get state request missing payload")
+            log.warning("Get state request missing payload")
             return
 
         window_id = envelope.payload.get("window_id")
@@ -441,7 +441,7 @@ def bind_window_manager(wm: QiWindowManager) -> None:
             window_id = get_window_id_from_source(envelope)
 
         if not window_id:
-            logger.warning("Get state request missing window_id")
+            log.warning("Get state request missing window_id")
             return
 
         window = wm.get_window(window_id)

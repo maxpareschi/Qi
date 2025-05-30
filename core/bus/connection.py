@@ -1,13 +1,10 @@
 import asyncio
 from collections import defaultdict
-from dataclasses import (
-    field,
-    # dataclass,
-)
 from uuid import uuid4
 
 from fastapi import WebSocket
-from pydantic.dataclasses import dataclass
+
+from core import dataclass, field
 
 ADDON = "addon"
 SESSION = "session"

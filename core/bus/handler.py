@@ -1,75 +1,179 @@
-from collections import defaultdict
-from dataclasses import (
-    field,
-    # dataclass,
-)
-from typing import Any, Awaitable, Callable, TypeAlias
+# core/bus/handler.py
+
+import asyncio
+import weakref
+from collections.abc import Awaitable
+from typing import TypeAlias
 from uuid import uuid4
 
-from pydantic.dataclasses import dataclass
+from core.bases import Handler, QiHandler, QiMessage
+from core.logger import get_logger
 
-from core.bus.message import QiMessage
-
-Handler: TypeAlias = Callable[[QiMessage], Any | Awaitable[Any]]
-
-
-@dataclass
-class QiHandler:
-    """A handler for a topic."""
-
-    handler_id: str = field(default_factory=lambda: str(uuid4()))
-    handler: Handler
-    topic: str
-    priority: int = 0
+log = get_logger(__name__)
 
 
-@dataclass
+SlotRef: TypeAlias = weakref.ReferenceType[Handler] | Handler
+
+
 class QiHandlerManager:
-    """Registry for handlers for a topic.
-    This class is used to store handlers for a topic.
-    It mantains an index of handlers for a topic in its internal dictionary.
+    """
+    Registry for QiHandler by topic and by ID, with optional weak-reference support,
+    built-in async/sync dispatch, and automatic pruning of dead handlers.
     """
 
-    by_id: defaultdict[str, QiHandler] = field(
-        default_factory=lambda: defaultdict(QiHandler)
-    )
+    def __init__(self, use_weakrefs: bool = False):
+        """
+        Initialize a new QiHandlerManager.
 
-    by_topic: defaultdict[str, list[str]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+        Args:
+            use_weakrefs (bool): Whether to use weak references for handlers.
+        """
 
-    def register(self, handler: Handler, topic: str, priority: int = 0) -> None:
-        """Register a handler for a topic."""
+        # handler_id → QiHandler
+        self.by_id: dict[str, QiHandler] = {}
 
-        self.by_topic[topic].append(QiHandler(handler, topic, priority))
+        # topic → list of handler_ids
+        self.by_topic: dict[str, list[str]] = {}
 
-    def unregister(self, handler: Handler, topic: str) -> None:
-        """Unregister a handler for a topic."""
+        # handler_id → slot ref (WeakMethod/ref or strong Handler)
+        self._slots: dict[str, SlotRef] = {}
+        self.use_weakrefs = use_weakrefs
 
-        for hndl in self.get_by_topic(topic):
-            if hndl.handler == handler:
-                self.by_topic[topic].remove(hndl)
-                if not self.by_topic[topic]:
-                    self.by_topic.pop(topic, None)
+        # lock for thread-safe operations
+        self._lock = asyncio.Lock()
 
-    def get_by_id(self, handler_id: str) -> QiHandler | None:
-        """Return all handlers for a handler ID."""
+    async def register(self, handler_fn: Handler, topic: str, priority: int = 0) -> str:
+        """
+        Subscribe `handler_fn` to `topic` with given `priority`.
+        Returns the new handler's unique ID.
+        """
+        # Before adding, prune any dead handlers on this topic
+        await self._prune_dead_for_topic(topic)
 
-        return self.by_id.get(handler_id, None)
+        hndl_id = str(uuid4())
+        qi_handler = QiHandler(
+            id=hndl_id, topic=topic, priority=priority, handler=handler_fn
+        )
 
-    def get_by_topic(self, topic: str) -> list[QiHandler]:
-        """Return all handlers for a topic."""
+        # Build slot_ref
+        if self.use_weakrefs and hasattr(handler_fn, "__self__"):
+            slot_ref: SlotRef = weakref.WeakMethod(handler_fn)
+        elif self.use_weakrefs:
+            try:
+                slot_ref = weakref.ref(handler_fn)  # type: ignore
+            except TypeError:
+                slot_ref = handler_fn
+        else:
+            slot_ref = handler_fn
 
-        result = []
-        handler_ids = self.by_topic.get(topic, [])
-        for handler_id in handler_ids:
-            handler = self.get_by_id(handler_id)
-            if handler:
-                result.append(handler)
-        return result
+        async with self._lock:
+            self.by_id[hndl_id] = qi_handler
+            self.by_topic.setdefault(topic, []).append(hndl_id)
+            self._slots[hndl_id] = slot_ref
 
-    def clear(self) -> None:
-        """Clear all handlers."""
+        return hndl_id
 
-        self.by_id.clear()
-        self.by_topic.clear()
+    async def unregister(
+        self,
+        *,
+        handler_id: str | None = None,
+        handler_fn: Handler | None = None,
+        topic: str | None = None,
+    ) -> None:
+        """
+        Unsubscribe handlers by `handler_id` or by the function `handler_fn`.
+        If `topic` is provided with no other args, clears all handlers on that topic.
+        Removes entries from by_id, by_topic, and _slots.
+        """
+        async with self._lock:
+            # If only topic is provided, clear it entirely
+            if topic and not handler_id and not handler_fn:
+                for hndl_id in self.by_topic.get(topic, []):
+                    self.by_id.pop(hndl_id, None)
+                    self._slots.pop(hndl_id, None)
+                self.by_topic.pop(topic, None)
+                return
+
+            # Build set of targets to remove
+            targets: set[str] = set()
+            if handler_id:
+                targets.add(handler_id)
+            if handler_fn:
+                for hndl_id, slot_ref in self._slots.items():
+                    fn = (
+                        slot_ref()
+                        if isinstance(slot_ref, weakref.ReferenceType)
+                        else slot_ref
+                    )
+                    if fn == handler_fn:
+                        targets.add(hndl_id)
+
+            # Remove matches
+            for hndl_id in targets:
+                hndl = self.by_id.pop(hndl_id, None)
+                self._slots.pop(hndl_id, None)
+                if not hndl:
+                    continue
+                lst = self.by_topic.get(hndl.topic, [])
+                if hndl_id in lst:
+                    lst.remove(hndl_id)
+                    if lst:
+                        self.by_topic[hndl.topic] = lst
+                    else:
+                        self.by_topic.pop(hndl.topic, None)
+
+    async def dispatch(self, message: QiMessage) -> None:
+        """
+        Deliver `message` to all handlers for its topic, sorted by descending priority.
+        Automatically prunes dead weakrefs and logs handler exceptions.
+        """
+        async with self._lock:
+            handler_ids = list(self.by_topic.get(message.topic, []))
+
+        # Gather live handlers and sort
+        handlers = [
+            self.by_id[hndl_id] for hndl_id in handler_ids if hndl_id in self.by_id
+        ]
+        handlers.sort(key=lambda h: h.priority, reverse=True)
+
+        for hndl in handlers:
+            slot_ref = self._slots.get(hndl.id)
+            if isinstance(slot_ref, weakref.ReferenceType):
+                fn = slot_ref()
+            else:
+                fn = slot_ref
+
+            if fn is None:
+                # stale weakref → unregister
+                await self.unregister(handler_id=hndl.id)
+                continue
+
+            try:
+                result = fn(message)
+                if isinstance(result, Awaitable):
+                    await result
+            except Exception:
+                log.exception(f"Error in handler {hndl.id} for topic {hndl.topic}")
+
+    async def clear(self) -> None:
+        """Remove all subscriptions."""
+        async with self._lock:
+            self.by_id.clear()
+            self.by_topic.clear()
+            self._slots.clear()
+
+    async def _prune_dead_for_topic(self, topic: str) -> None:
+        """
+        Remove any handlers on `topic` whose weakrefs have gone stale.
+        """
+        async with self._lock:
+            for hndl_id in list(self.by_topic.get(topic, [])):
+                slot_ref = self._slots.get(hndl_id)
+                if isinstance(slot_ref, weakref.ReferenceType) and slot_ref() is None:
+                    # remove stale
+                    self.by_id.pop(hndl_id, None)
+                    self.by_topic[topic].remove(hndl_id)
+                    self._slots.pop(hndl_id, None)
+            # if topic empty, drop it
+            if not self.by_topic.get(topic):
+                self.by_topic.pop(topic, None)

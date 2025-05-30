@@ -1,5 +1,6 @@
 import logging
-import os
+
+from core import qi_config
 
 # ANSI color codes
 COLORS = {
@@ -61,7 +62,7 @@ class QiCustomFormatter(logging.Formatter):
 
         # Apply the color formatting (matching the colorlog format exactly)
         colored_format = (
-            # f"{COLORS['light_black']}{record.asctime}{COLORS['reset']} | "
+            f"{COLORS['light_black']}{record.asctime}{COLORS['reset']} | "
             f"{log_color}{record.levelname:<8}{COLORS['reset']} | "
             f"{message_color}{record.name:<20} | "
             f"{record.getMessage()}{COLORS['reset']} "
@@ -98,8 +99,8 @@ def get_logger(name: str | None = None, level: int | None = None) -> logging.Log
     """
     Get a logger with a custom formatter.
     """
-    qi_dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
-    qi_log_level = os.getenv("QI_LOG_LEVEL", "WARNING").upper()
+    qi_dev_mode = qi_config.dev_mode
+    qi_log_level = qi_config.log_level
 
     level_map = {
         "DEBUG": DEBUG,

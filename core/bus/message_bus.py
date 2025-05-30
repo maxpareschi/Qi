@@ -41,7 +41,7 @@ class QiMessageBus(metaclass=QiMessageBusSingletonMeta):
 
     Main components:
     - self._handlers: QiHandlerManager for handlers for messages.
-    - self._connections: QiConnectionRegistry for WebSocket connections to the message bus.
+    - self._connections: QiConnectionManager for WebSocket connections to the message bus.
     - self._messages: QiMessageManager for messages sent through the message bus.
 
     Responsibilities:

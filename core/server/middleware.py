@@ -7,9 +7,9 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import FileResponse, RedirectResponse
 
-from core import logger
+from core.logger import get_logger
 
-log = logger.get_logger(__name__)
+log = get_logger(__name__)
 
 
 class QiDevProxyMiddleware(BaseHTTPMiddleware):

@@ -1,29 +1,36 @@
-# hub/launcher.py
+import os
+import threading
 
-import argparse
+from core import qi_config
+from hub.lib.runners import run_server
 
-from core.config import config
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Launch Qi app.")
-    parser.add_argument("--dev_mode", action="store_true", help="Enable dev mode")
-    parser.add_argument("--local_server", type=str, help="Override local server")
-    parser.add_argument("--local_port", type=int, help="Override local port")
-    parser.add_argument("--log_level", type=str, help="Override log level")
-    parser.add_argument("--ssl_cert_path", type=str, help="Override SSL cert path")
-    parser.add_argument("--ssl_key_path", type=str, help="Override SSL key path")
+def qi_gui_launcher():
+    """
+    Launcher for the hub.
+    """
+    # window_manager = QiWindowManager()
+    # bind_window_manager(window_manager)
 
-    cli_flags = parser.parse_args().__dict__
-    if cli_flags.get("dev_mode"):
-        cli_flags["log_level"] = "DEBUG"
+    server_thread: threading.Thread = run_server(
+        qi_config.host,
+        qi_config.port,
+        qi_config.ssl_key_path,
+        qi_config.ssl_cert_path,
+        qi_config.dev_mode,
+    )
 
-    for key, value in cli_flags.items():
-        if value is not None:
-            setattr(config, key, value)
+    # icon_path = os.path.join(
+    #     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    #     "static",
+    #     "qi_512.png",
+    # ).replace("\\", "/")
+    # for addon_name, addon_data in qi_config.addon_paths.items():
+    #     window_manager.create_window(addon=addon_name, session_id="test-session")
+    # window_manager.run(
+    #     icon=icon_path,
+    # )
 
-    print(config)
+    server_thread.join()
 
-    # Now that env is fully set, import config and run
-    # import core.main
-
-    # core.main.run()
+    os._exit(0)

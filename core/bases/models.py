@@ -18,11 +18,15 @@ background monkey-patching or doing it manually.
 
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeAlias
 from uuid import uuid4
+
+from core import dataclass, field
+from core.logger import get_logger
+
+log = get_logger(__name__)
 
 
 class QiMessageType(str, Enum):
@@ -98,3 +102,16 @@ class QiConnection:
     id: str = field(default_factory=lambda: str(uuid4()))
     socket: Any  # FastAPI WebSocket
     source: QiSource
+
+
+Handler: TypeAlias = Callable[[QiMessage], Any | Awaitable[Any]]
+
+
+@dataclass
+class QiHandler:
+    """A single handler subscription."""
+
+    id: str
+    handler: Handler
+    topic: str
+    priority: int

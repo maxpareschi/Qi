@@ -4,14 +4,14 @@ import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from core import logger
 from core.bus import QiConnectionSource, QiMessageBus
+from core.logger import get_logger
 from core.server.middleware import (
     QiDevProxyMiddleware,
     QiSPAStaticFilesMiddleware,
 )
 
-log = logger.get_logger(__name__)
+log = get_logger(__name__)
 
 qi_dev_mode: bool = os.getenv("QI_DEV_MODE", "0") == "1"
 

@@ -1,13 +1,9 @@
 from collections import defaultdict
-from dataclasses import (
-    field,
-    # dataclass,
-)
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from pydantic.dataclasses import dataclass
+from core import dataclass, field
 
 
 @dataclass
