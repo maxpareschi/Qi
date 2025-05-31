@@ -18,7 +18,7 @@
     "build-ui": "bun run --filter './addons/*/ui_src' build",
     "preview-ui": "bun run --filter './addons/*/ui_src' preview",
     "dev-hub": "./.venv/Scripts/activate; python -m hub.main --dev-mode",
-    "hub": "./.venv/Scripts/activate; python -m hub.main"
+    "hub": "./.venv/Scripts/activate; python -O -m hub.main"
   },
   "type": "module",
   "workspaces": [

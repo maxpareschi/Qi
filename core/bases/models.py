@@ -23,6 +23,8 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, TypeAlias
 from uuid import uuid4
 
+from fastapi import WebSocket
+
 from core import dataclass, field
 from core.logger import get_logger
 
@@ -37,6 +39,10 @@ class QiMessageType(str, Enum):
     STATEFUL = "stateful"
 
 
+SourceKey: TypeAlias = tuple[str, str, str | None]
+OptionalKey: TypeAlias = tuple[str | None, str | None, str | None]
+
+
 @dataclass
 class QiUser:
     """User metadata."""
@@ -45,7 +51,8 @@ class QiUser:
     name: str | None = None
     email: str | None = None
 
-    def key(self) -> tuple[str | None, str | None, str | None]:
+    @property
+    def key(self) -> OptionalKey:
         return (self.id, self.name, self.email)
 
 
@@ -53,11 +60,13 @@ class QiUser:
 class QiContext:
     """Contextual metadata for tasks, projects, etc."""
 
+    id: str = field(default_factory=lambda: str(uuid4()))
     project: str | None = None
     entity: str | None = None
     task: str | None = None
 
-    def key(self) -> tuple[str | None, str | None, str | None]:
+    @property
+    def key(self) -> OptionalKey:
         return (self.project, self.entity, self.task)
 
 
@@ -65,16 +74,20 @@ class QiContext:
 class QiSource:
     """Generic source object for messages, connections, etc."""
 
+    id: str = field(default_factory=lambda: str(uuid4()))
     addon: str
     session_id: str
     window_id: str | None = None
 
-    def key(self) -> tuple[str, str, str | None]:
+    @property
+    def key(self) -> SourceKey:
         return (self.addon, self.session_id, self.window_id)
 
 
 @dataclass
 class QiMessage:
+    """A message to be sent through the message bus."""
+
     id: str = field(default_factory=lambda: str(uuid4()))
     topic: str
     type: QiMessageType = QiMessageType.NORMAL
@@ -99,8 +112,10 @@ class QiMessage:
 
 @dataclass
 class QiConnection:
+    """A connection to the message bus."""
+
     id: str = field(default_factory=lambda: str(uuid4()))
-    socket: Any  # FastAPI WebSocket
+    socket: WebSocket
     source: QiSource
 
 
@@ -114,4 +129,3 @@ class QiHandler:
     id: str
     handler: Handler
     topic: str
-    priority: int
