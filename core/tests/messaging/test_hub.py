@@ -46,9 +46,7 @@ class MockWebSocket:
 async def test_hub_register_delegates_to_bus(hub: QiHub, mock_bus: AsyncMock):
     mock_socket = MockWebSocket()
     mock_session = QiSession(id="s1", logical_id="client1")
-
     await hub.register(socket=mock_socket, session=mock_session)
-
     mock_bus.register.assert_called_once_with(socket=mock_socket, session=mock_session)
 
 
@@ -137,7 +135,6 @@ async def test_on_event_registration_and_fire_async_hook(
         hook_event.set()
 
     # Simulate the internal event that would trigger this hook
-    # For example, after a bus operation, the Hub calls _fire
     await hub._fire(event_name, "val1", "val2")
 
     await asyncio.wait_for(hook_event.wait(), timeout=0.1)
@@ -149,14 +146,10 @@ async def test_on_event_registration_and_fire_sync_hook(
 ):
     event_name = "test_event_sync"
     hook_called_with = None
-    # For sync hooks run in a thread, an asyncio.Event isn't ideal for direct sync.
-    # We'll check the side effect (hook_called_with) after a brief sleep allowing the thread to run.
-    # A more robust way might involve a queue or a mock that can assert calls across threads.
 
     @hub.on_event(event_name)
     def sync_hook(arg1, arg2):
         nonlocal hook_called_with
-        # print(f"Sync hook called with {arg1}, {arg2}") # For debugging test
         hook_called_with = (arg1, arg2)
 
     await hub._fire(event_name, 123, 456)

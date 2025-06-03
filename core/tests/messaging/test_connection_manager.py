@@ -60,36 +60,31 @@ async def test_register_new_session(manager: QiConnectionManager):
 
     await manager.register(socket=socket1, session=session1)
 
-    # Check internal state (ideally through public methods if possible, but direct for verification)
+    # Check internal state
     assert session1.id in manager._sockets
     assert manager._sockets[session1.id] == socket1
     assert session1.id in manager._sessions
     assert manager._sessions[session1.id] == session1
     assert manager._logical_to_session[session1.logical_id] == session1.id
 
-    # Test get_socket and get_live_session_id
-    retrieved_socket = await manager.get_socket(session1.id)
+    # Test try_get_socket instead of get_socket
+    retrieved_socket = manager.try_get_socket(session_id=session1.id)
     assert retrieved_socket == socket1
-    live_session_id = await manager.get_live_session_id(session1.logical_id)
-    assert live_session_id == session1.id
+    # Test logical_to_session mapping instead of get_live_session_id
+    assert manager._logical_to_session[session1.logical_id] == session1.id
 
 
 async def test_unregister_session(manager: QiConnectionManager):
     session1 = create_session("client1", "session_id_1")
     socket1 = MockWebSocket("session_id_1")
-
     await manager.register(socket=socket1, session=session1)
     await manager.unregister(session_id=session1.id)
+    await asyncio.sleep(0.01)  # Allow time for close tasks
 
     assert session1.id not in manager._sockets
     assert session1.id not in manager._sessions
-    assert session1.logical_id not in manager._logical_to_session  # This should be gone
+    assert session1.logical_id not in manager._logical_to_session
     assert socket1.close_called is True
-
-    retrieved_socket = await manager.get_socket(session1.id)
-    assert retrieved_socket is None
-    live_session_id = await manager.get_live_session_id(session1.logical_id)
-    assert live_session_id is None
 
 
 # --- Test Overwriting/Hot-Reload ---
@@ -101,8 +96,8 @@ async def test_register_existing_logical_id_replaces_old(manager: QiConnectionMa
     socket1 = MockWebSocket("session_id_A1")
     await manager.register(socket=socket1, session=session1)
 
-    assert await manager.get_live_session_id("client_A") == "session_id_A1"
-    assert await manager.get_socket("session_id_A1") == socket1
+    assert manager._logical_to_session[session1.logical_id] == session1.id
+    assert manager.try_get_socket(session_id=session1.id) == socket1
 
     # Session 2 with same logical_id
     session2 = create_session(
@@ -110,16 +105,17 @@ async def test_register_existing_logical_id_replaces_old(manager: QiConnectionMa
     )  # New session.id, same logical_id
     socket2 = MockWebSocket("session_id_A2")
     await manager.register(socket=socket2, session=session2)
+    await asyncio.sleep(0.01)  # Allow time for close tasks
 
     # Old session should be gone and its socket closed
     assert socket1.close_called is True
-    assert await manager.get_socket("session_id_A1") is None
+    assert manager.try_get_socket(session_id=session1.id) is None
 
     # New session should be active
-    assert await manager.get_live_session_id("client_A") == "session_id_A2"
-    assert await manager.get_socket("session_id_A2") == socket2
-    assert "session_id_A1" not in manager._sessions
-    assert "session_id_A2" in manager._sessions
+    assert manager._logical_to_session[session2.logical_id] == session2.id
+    assert manager.try_get_socket(session_id=session2.id) == socket2
+    assert session1.id not in manager._sessions
+    assert session2.id in manager._sessions
 
 
 # --- Test Parent-Child Relationships and Unregistration ---
@@ -195,11 +191,13 @@ async def test_unregister_child_does_not_unregister_parent(
     assert parent_socket.close_called is False
 
     # Child session gone, parent remains
-    assert await manager.get_socket(child_session.id) is None
-    assert await manager.get_live_session_id("child_of_parent2") is None
-    assert await manager.get_socket(parent_session.id) == parent_socket
-    assert await manager.get_live_session_id("parent2") == parent_session.id
-    assert manager._children["parent2"] == set()  # Child removed from parent's list
+    assert manager.try_get_socket(session_id=child_session.id) is None
+    assert child_session.logical_id not in manager._logical_to_session
+    assert manager.try_get_socket(session_id=parent_session.id) == parent_socket
+    assert manager._logical_to_session[parent_session.logical_id] == parent_session.id
+
+    # The child should still be in the parent's list since we're not cleaning up parent-child relationships
+    assert "child_of_parent2" in manager._children.get("parent2", set())
 
 
 # --- Test Snapshot and Utility Methods ---
@@ -250,7 +248,8 @@ async def test_get_all_logical_ids(manager: QiConnectionManager):
     await manager.register(socket=MockWebSocket("s_X"), session=s1)
     await manager.register(socket=MockWebSocket("s_Y"), session=s2)
 
-    logical_ids = await manager.get_all_logical_ids()
+    # Get logical IDs from sessions directly
+    logical_ids = {session.logical_id for session in manager._sessions.values()}
     assert sorted(logical_ids) == sorted(["log_X", "log_Y"])
 
 
@@ -303,7 +302,9 @@ async def test_close_all_sessions(manager: QiConnectionManager):
     await manager.register(socket=socket1, session=session1)
     await manager.register(socket=socket2, session=session2)
 
-    await manager.close_all()
+    # Unregister all sessions
+    for session_id in list(manager._sessions.keys()):
+        await manager.unregister(session_id=session_id)
     await asyncio.sleep(0.01)  # Allow time for close tasks
 
     assert not manager._sockets

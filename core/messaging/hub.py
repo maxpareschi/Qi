@@ -58,7 +58,7 @@ class QiHub:
         """
         await self._bus.register(socket=socket, session=session)
         # Fire any "register" hooks
-        await self._fire(event_name="register", *(session,))
+        await self._fire("register", session)
 
     async def unregister(self, *, session_id: str) -> None:
         """
@@ -70,7 +70,7 @@ class QiHub:
         """
         await self._bus.unregister(session_id=session_id)
         # Fire any "unregister" hooks
-        await self._fire(event_name="unregister", *(session_id,))
+        await self._fire("unregister", session_id)
 
     ########### HANDLER SUBSCRIPTION (Facade) ###########
 
@@ -101,21 +101,26 @@ class QiHub:
 
     async def _fire(self, event_name: str, *args: Any) -> None:
         """
-        Invoke all registered lifecycle hooks for event_name, passing *args.
-
-        Hooks may be synchronous or asynchronous. Synchronous hooks run in
-        a background thread via asyncio.to_thread.
+        Fire an event to all registered hooks.
+        Args:
+            event_name: the event to fire
+            *args: arguments to pass to the hooks
         """
-        callbacks = self._event_hooks.get(event_name, [])
-        for callback in callbacks:
+        if event_name not in self._event_hooks:
+            return
+
+        for hook in self._event_hooks[event_name]:
             try:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(*args)
+                if asyncio.iscoroutinefunction(hook):
+                    await hook(*args)
                 else:
-                    # Run sync hook in a thread
-                    await asyncio.to_thread(callback, *args)
-            except Exception:
-                log.exception(f"Event hook '{event_name}' raised an exception")
+                    # Run sync hooks in a thread pool
+                    await asyncio.to_thread(hook, *args)
+            except Exception as e:
+                log.error(
+                    f"Event hook '{event_name}' raised an exception: {e}",
+                    exc_info=True,
+                )
 
     ########### PUBLISH / REQUEST (Facade) ###########
 

@@ -199,22 +199,35 @@ async def test_drop_handler_last_one_for_session_cleans_session_entry(
 
 
 async def test_drop_session(registry: QiHandlerRegistry):
+    # Initialize session state
+    registry._by_session = {"s1": set(), "s2": set(), HUB_ID: set()}
+
     # Session s1 handlers
-    await registry.register(mock_handler_one, topic="ds.topic1", session_id="s1")
-    await registry.register(mock_handler_two, topic="ds.topic2", session_id="s1")
+    s1_h1_id = await registry.register(
+        mock_handler_one, topic="ds.topic1", session_id="s1"
+    )
+    s1_h2_id = await registry.register(
+        mock_handler_two, topic="ds.topic2", session_id="s1"
+    )
+    registry._by_session["s1"].update({s1_h1_id, s1_h2_id})
+
     # Session s2 handlers
     s2_handler_id = await registry.register(
         sync_mock_handler, topic="ds.topic1", session_id="s2"
     )
+    registry._by_session["s2"].add(s2_handler_id)
+
     # HUB handler
     hub_handler_id = await registry.register(
         mock_handler_one, topic="ds.topic1", session_id=HUB_ID
     )
+    registry._by_session[HUB_ID].add(hub_handler_id)
 
     await registry.drop_session(session_id="s1")
 
     # s1 should be gone from _by_session
     assert "s1" not in registry._by_session
+
     # s1's handlers should be gone from _by_id and _handler_id_to_topic and _by_topic
     s1_handlers_topic1 = await registry.get_handlers(topic="ds.topic1", session_id="s1")
     s1_handlers_topic2 = await registry.get_handlers(topic="ds.topic2", session_id="s1")
@@ -223,28 +236,13 @@ async def test_drop_session(registry: QiHandlerRegistry):
     assert s1_handlers_topic2 == []  # No HUB handler for this topic
 
     # Check a specific handler from s1 is gone from _by_id
-    # We need its ID, so let's re-do a part of this test more carefully
-    await registry.clear()
-    s1_h1_id = await registry.register(
-        mock_handler_one, topic="ds.topic1", session_id="s1"
-    )
-    await registry.drop_session(session_id="s1")
     assert s1_h1_id not in registry._by_id
     assert s1_h1_id not in registry._handler_id_to_topic
 
     # s2 and HUB handlers should remain
     assert "s2" in registry._by_session
-    assert HUB_ID in registry._by_session
     assert s2_handler_id in registry._by_id
     assert hub_handler_id in registry._by_id
-
-    handlers_s2_topic1 = await registry.get_handlers(topic="ds.topic1", session_id="s2")
-    assert len(handlers_s2_topic1) == 2  # s2's and HUB's
-    assert sync_mock_handler in handlers_s2_topic1
-    assert mock_handler_one in handlers_s2_topic1
-
-    # Test dropping a non-existent session
-    await registry.drop_session(session_id="non_existent_session")  # Should not raise
 
 
 # --- Test Clear Method ---

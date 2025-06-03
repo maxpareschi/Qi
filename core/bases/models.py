@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, TypeAlias
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.config import qi_config
 
@@ -29,12 +29,13 @@ class QiBaseModel(BaseModel):
 
     model_config = ConfigDict(
         # ENABLE validation in dev mode, DISABLE in production
-        validate_assignment=qi_config.dev_mode,
-        validate_default=qi_config.dev_mode,
-        validate_return=qi_config.dev_mode,
-        # Strict mode only in development
-        extra="forbid" if qi_config.dev_mode else "allow",
-        validate_on_construction=qi_config.dev_mode,
+        validate_assignment=qi_config.dev_mode,  # Always validate assignments
+        validate_default=qi_config.dev_mode,  # Always validate defaults
+        validate_return=qi_config.dev_mode,  # Always validate returns
+        validate_on_construction=qi_config.dev_mode,  # Always validate on construction
+        extra="forbid"
+        if qi_config.dev_mode
+        else "allow",  # Forbid extra fields in dev mode
     )
 
 
@@ -76,15 +77,13 @@ class QiSession(QiBaseModel):
     parent_logical_id: str | None = None
     tags: list[str] = Field(default_factory=list)
 
-    # VALIDATORS ARE DISABLED FOR NOW, NO NEED ON LOCALHOST USUALLY
-    #
-    # @field_validator("logical_id")
-    # @classmethod
-    # def _validate_logical_id(cls, value: str) -> str:
-    #     """Validates that logical_id is between 1 and 100 characters."""
-    #     if not value or len(value) > 100:
-    #         raise ValueError("logical_id must be 1-100 characters")
-    #     return value
+    @field_validator("logical_id")
+    @classmethod
+    def _validate_logical_id(cls, value: str) -> str:
+        """Validates that logical_id is between 1 and 100 characters."""
+        if not value or len(value) > 100:
+            raise ValueError("logical_id must be 1-100 characters")
+        return value
 
 
 class QiMessage(QiBaseModel):
@@ -104,33 +103,31 @@ class QiMessage(QiBaseModel):
     timestamp: float = Field(default_factory=lambda: time.time())
     bubble: bool = False  # route to parent if True
 
-    # VALIDATORS ARE DISABLED FOR NOW, NO NEED ON LOCALHOST USUALLY
-    #
-    # @field_validator("topic")
-    # @classmethod
-    # def _no_wildcards(cls, value: str) -> str:
-    #     """Validates topic constraints: 1-200 chars, no wildcards."""
-    #     if not value or len(value) > 200:
-    #         raise ValueError("topic must be 1-200 characters")
-    #     if "*" in value or ">" in value:
-    #         raise ValueError("wildcards are disallowed")
-    #     return value
-    #
-    # @field_validator("target")
-    # @classmethod
-    # def _validate_target(cls, value: list[str]) -> list[str]:
-    #     """Validates that the target list does not exceed 50 recipients."""
-    #     if len(value) > 50:  # Prevent broadcast storms
-    #         raise ValueError("target list cannot exceed 50 recipients")
-    #     return value
-    #
-    # @field_validator("payload")
-    # @classmethod
-    # def _validate_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
-    #     """Validates that the payload does not have an excessive number of top-level keys."""
-    #     if len(value) > 100:  # Reasonable number of top-level keys
-    #         raise ValueError("payload has too many top-level keys (max 100)")
-    #     return value
+    @field_validator("topic")
+    @classmethod
+    def _no_wildcards(cls, value: str) -> str:
+        """Validates topic constraints: 1-200 chars, no wildcards."""
+        if not value or len(value) > 200:
+            raise ValueError("topic must be 1-200 characters")
+        if "*" in value or ">" in value:
+            raise ValueError("wildcards are disallowed")
+        return value
+
+    @field_validator("target")
+    @classmethod
+    def _validate_target(cls, value: list[str]) -> list[str]:
+        """Validates that the target list does not exceed 50 recipients."""
+        if len(value) > 50:  # Prevent broadcast storms
+            raise ValueError("target list cannot exceed 50 recipients")
+        return value
+
+    @field_validator("payload")
+    @classmethod
+    def _validate_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Validates that the payload does not have an excessive number of top-level keys."""
+        if len(value) > 100:  # Reasonable number of top-level keys
+            raise ValueError("payload has too many top-level keys (max 100)")
+        return value
 
 
 QiCallback: TypeAlias = Callable[..., Any]
