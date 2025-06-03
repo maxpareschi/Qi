@@ -1,131 +1,94 @@
-# core/bases/models.py
-"""
-Common models for the Qi platform.
-This module contains the core models for the Qi platform.
-The models are designed as dataclasses, but actual decorator
-will be applied in the 'core.config' module through monkey-patching.
+from __future__ import annotations
 
-In Development (QI_DEV=True):
-    The models will get decorated using pydantic 'dataclass' decorator.
-In Production (QI_DEV=False):
-    The models will get decorated using the 'dataclass' decorator.
-
-This is to ensure that the models are validated in development,
-but not in production, to avoid performance issues.
-the core.config module will also have a dataclass and a field import
-for convenience, to let the developer choose between relying on
-background monkey-patching or doing it manually.
-
-"""
-
-from datetime import datetime
+import time
 from enum import Enum
-from typing import Any, Awaitable, Callable, TypeAlias
+from typing import Any, Awaitable, Callable, List, Tuple, TypeAlias
 from uuid import uuid4
 
-from fastapi import WebSocket
+from pydantic import BaseModel, Field, field_validator
 
-from core import dataclass, field
-from core.logger import get_logger
-
-log = get_logger(__name__)
+TupleKey2: TypeAlias = Tuple[str | None, str | None]
+TupleKey3: TypeAlias = Tuple[str | None, str | None, str | None]
 
 
 class QiMessageType(str, Enum):
-    NORMAL = "normal"
-    TRANSIENT = "transient"
-    ACK = "ack"
-    CACHE_ONLY = "cache"
-    STATEFUL = "stateful"
+    EVENT = "event"
+    REQUEST = "request"
+    REPLY = "reply"
 
 
-SourceKey: TypeAlias = tuple[str, str, str | None]
-OptionalKey: TypeAlias = tuple[str | None, str | None, str | None]
-
-
-@dataclass
-class QiUser:
-    """User metadata."""
-
+class QiUser(BaseModel):
     id: str | None = None
     name: str | None = None
     email: str | None = None
 
     @property
-    def key(self) -> OptionalKey:
-        return (self.id, self.name, self.email)
+    def key(self) -> TupleKey2:
+        return (self.id, self.name)
 
 
-@dataclass
-class QiContext:
-    """Contextual metadata for tasks, projects, etc."""
-
-    id: str = field(default_factory=lambda: str(uuid4()))
+class QiContext(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
     project: str | None = None
     entity: str | None = None
     task: str | None = None
 
     @property
-    def key(self) -> OptionalKey:
+    def key(self) -> TupleKey3:
         return (self.project, self.entity, self.task)
 
 
-@dataclass
-class QiSource:
-    """Generic source object for messages, connections, etc."""
+class QiSession(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    logical_id: str
+    parent_logical_id: str | None = None
+    tags: List[str] = Field(default_factory=list)
 
-    id: str = field(default_factory=lambda: str(uuid4()))
-    addon: str
-    session_id: str
-    window_id: str | None = None
-
-    @property
-    def key(self) -> SourceKey:
-        return (self.addon, self.session_id, self.window_id)
+    @field_validator("logical_id")
+    @classmethod
+    def _validate_logical_id(cls, value: str) -> str:
+        if not value or len(value) > 100:
+            raise ValueError("logical_id must be 1-100 characters")
+        return value
 
 
-@dataclass
-class QiMessage:
-    """A message to be sent through the message bus."""
-
-    id: str = field(default_factory=lambda: str(uuid4()))
+class QiMessage(BaseModel):
+    message_id: str = Field(default_factory=lambda: str(uuid4()))
     topic: str
-    type: QiMessageType = QiMessageType.NORMAL
-    requires_ack: bool = False
-
-    # TODO: take this out at some point since it's redundant.
-    # QiMessageType.ACK already hints at id being the reply target,
-    # so reply_to is more of a convenience field for now.
+    type: QiMessageType
+    sender: QiSession
+    target: List[str] = Field(default_factory=list)
     reply_to: str | None = None
-
-    # TODO: take this out at some point since it could make sense to
-    # just specify an expiration per QiMessageType by default.
-    expires_at: float | None = None
-
-    timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
-
-    source: QiSource | None = None
-    data: dict[str, Any] | None = None
     context: QiContext | None = None
-    user: QiUser | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    timestamp: float = Field(default_factory=lambda: time.time())
+    bubble: bool = False  # route to parent if True
+
+    @field_validator("topic")
+    @classmethod
+    def _no_wildcards(cls, value: str) -> str:
+        # Fast validation - just check basic constraints
+        if not value or len(value) > 200:
+            raise ValueError("topic must be 1-200 characters")
+        if "*" in value or ">" in value:
+            raise ValueError("wildcards are disallowed")
+        return value
+
+    @field_validator("target")
+    @classmethod
+    def _validate_target(cls, value: list[str]) -> list[str]:
+        if len(value) > 50:  # Prevent broadcast storms
+            raise ValueError("target list cannot exceed 50 recipients")
+        return value
+
+    @field_validator("payload")
+    @classmethod
+    def _validate_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
+        # Basic check - just count top-level keys (fast)
+        if len(value) > 100:  # Reasonable number of top-level keys
+            raise ValueError("payload has too many top-level keys (max 100)")
+        return value
 
 
-@dataclass
-class QiConnection:
-    """A connection to the message bus."""
-
-    id: str = field(default_factory=lambda: str(uuid4()))
-    socket: WebSocket
-    source: QiSource
-
-
-Handler: TypeAlias = Callable[[QiMessage], Any | Awaitable[Any]]
-
-
-@dataclass
-class QiHandler:
-    """A single handler subscription."""
-
-    id: str
-    handler: Handler
-    topic: str
+QiCallback: TypeAlias = Callable[..., Any]
+QiHandler: TypeAlias = Callable[[QiMessage], Awaitable[Any] | Any]

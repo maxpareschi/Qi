@@ -1,19 +1,18 @@
 # main.py
-import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from core.bus import QiConnectionSource, QiMessageBus
+from core.bases.models import QiMessage, QiSession
+from core.config import qi_config
 from core.logger import get_logger
+from core.network.hub import hub
 from core.server.middleware import (
     QiDevProxyMiddleware,
     QiSPAStaticFilesMiddleware,
 )
 
 log = get_logger(__name__)
-
-qi_dev_mode: bool = os.getenv("QI_DEV_MODE", "0") == "1"
 
 
 qi_server = FastAPI(
@@ -32,25 +31,38 @@ async def root():
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
 
-    init = await ws.receive_json()
     try:
-        source = QiConnectionSource(**init)
-    except ValidationError:
+        init = await ws.receive_json()
+        session = QiSession.model_validate(init)
+        await hub.register(ws, session)
+    except ValidationError as e:
+        log.warning(f"Invalid session data: {e}")
         await ws.close(code=4401)
         return
-
-    bus = QiMessageBus()
+    except Exception as e:
+        log.error(f"Session registration failed: {e}")
+        await ws.close(code=4500)
+        return
 
     try:
-        await bus.connect(ws, source)
+        async for raw_json in ws.iter_json():
+            try:
+                message = QiMessage.model_validate(raw_json)
+                await hub.publish(message)
+            except ValidationError as e:
+                log.warning(f"Invalid message from {session.id}: {e}")
+                # Continue processing other messages
+            except Exception as e:
+                log.error(f"Message processing error: {e}")
     except WebSocketDisconnect:
-        log.debug(f"WebSocket disconnected: source={source}")
-        bus._connections.unregister(bus._connections.by_source_id())
+        log.debug(f"WebSocket disconnected: session={session.id}")
     except Exception as e:
         log.error(f"WebSocket error: {e}")
+    finally:
+        await hub.unregister(session.id)
 
 
-if qi_dev_mode:
+if qi_config.dev_mode:
     qi_server.add_middleware(QiDevProxyMiddleware)
     log.debug("Dev mode enabled: using QiDevProxyMiddleware for routing.")
 else:

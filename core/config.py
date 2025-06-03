@@ -76,6 +76,9 @@ class QiConfigManager(BaseSettings):
     # Addon dev servers, to be parsed when launching the app in dev mode
     addon_dev_servers: dict[str, dict[str, str]] = Field(default_factory=dict)
 
+    # Reply timeout
+    reply_timeout: float = Field(default=5.0)
+
     @field_validator("addon_paths", mode="before")
     @classmethod
     def _parse_addon_paths(cls, v: str | list[str]) -> list[str]:
