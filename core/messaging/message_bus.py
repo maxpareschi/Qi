@@ -10,7 +10,7 @@ from fastapi import WebSocket
 from core.bases.models import QiContext, QiMessage, QiMessageType, QiSession
 from core.config import qi_config
 from core.constants import HUB_ID
-from core.logging import get_logger
+from core.logger import get_logger
 from core.messaging.connection_manager import QiConnectionManager
 from core.messaging.handler_registry import QiHandlerRegistry
 

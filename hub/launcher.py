@@ -1,7 +1,7 @@
 import os
 import threading
 
-from core import qi_config
+from core.config import qi_config
 from hub.lib.runners import run_server
 
 

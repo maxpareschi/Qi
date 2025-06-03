@@ -5,7 +5,7 @@ from typing import Any, Final
 
 from core.bases.models import QiMessage, QiSession
 from core.constants import HUB_ID
-from core.logging import get_logger
+from core.logger import get_logger
 from core.messaging.message_bus import QiMessageBus
 
 log = get_logger(__name__)

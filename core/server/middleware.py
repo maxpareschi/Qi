@@ -7,7 +7,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import FileResponse, RedirectResponse
 
-from core.logging import get_logger
+from core.logger import get_logger
 
 log = get_logger(__name__)
 
@@ -76,7 +76,7 @@ class QiSPAStaticFilesMiddleware(BaseHTTPMiddleware):
         parts = path_str.split("/", 1)
         addon_name = parts[0]
 
-        addon_ui_dir = Path(f"addons/{addon_name}/ui").resolve()  # Resolve early
+        addon_ui_dir = Path(f"addons/{addon_name}/ui-dist").resolve()  # Resolve early
         if not addon_ui_dir.is_dir():
             return await call_next(request)
 

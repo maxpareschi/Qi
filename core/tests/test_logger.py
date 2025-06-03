@@ -1,9 +1,10 @@
 import logging
+import re
 from unittest.mock import patch
 
 import pytest
 
-from core.logging import (
+from core.logger import (
     CRITICAL,
     DEBUG,
     ERROR,
@@ -14,7 +15,7 @@ from core.logging import (
     root_logger,  # Access to check its level
     set_level,
 )
-from core.logging import (
+from core.logger import (
     handler as qi_global_handler,  # Access to check its level
 )
 
@@ -62,7 +63,7 @@ def test_get_logger_sets_level_from_argument():
     assert qi_global_handler.level == ERROR
 
 
-@patch("core.logging.qi_config")
+@patch("core.logger.qi_config")
 def test_get_logger_dev_mode_true_sets_debug(mock_qi_config):
     mock_qi_config.dev_mode = True
     mock_qi_config.log_level = "INFO"  # This should be overridden by dev_mode
@@ -72,7 +73,7 @@ def test_get_logger_dev_mode_true_sets_debug(mock_qi_config):
     assert qi_global_handler.level == DEBUG
 
 
-@patch("core.logging.qi_config")
+@patch("core.logger.qi_config")
 def test_get_logger_dev_mode_false_uses_config_level(mock_qi_config):
     mock_qi_config.dev_mode = False
     mock_qi_config.log_level = "WARNING"
@@ -87,7 +88,7 @@ def test_get_logger_dev_mode_false_uses_config_level(mock_qi_config):
     assert qi_global_handler.level == CRITICAL
 
 
-@patch("core.logging.qi_config")
+@patch("core.logger.qi_config")
 def test_get_logger_level_arg_overrides_config(mock_qi_config):
     mock_qi_config.dev_mode = True  # Should be overridden by level arg
     mock_qi_config.log_level = "INFO"  # Should be overridden by level arg
@@ -139,7 +140,7 @@ def test_qicustomformatter_formats_log_record(
     # Check for timestamp placeholder format (actual time varies)
     # Example: 23-07-21 10:30:00 (based on %y-%m-%d %H:%M:%S)
     # This regex checks for DD-MM-YY HH:MM:SS format more or less
-    assert pytest.re.match(r".*\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.*", formatted_string)
+    assert re.match(r".*\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.*", formatted_string)
 
 
 def test_qicustomformatter_level_colors_applied_in_format(

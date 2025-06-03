@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from core.bases.models import QiHandler
 from core.constants import HUB_ID
-from core.logging import get_logger
+from core.logger import get_logger
 
 log = get_logger(__name__)
 

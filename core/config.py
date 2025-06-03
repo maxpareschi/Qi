@@ -15,7 +15,6 @@ from pydantic_settings import (
 )
 
 from core.constants import BASE_PATH, CONFIG_FILE, DOTENV_FILE
-from core.logging import log
 
 
 class QiConfigManager(BaseSettings):
@@ -28,7 +27,7 @@ class QiConfigManager(BaseSettings):
         case_sensitive=False,
         cli_implicit_flags=True,
         cli_kebab_case=True,
-        cli_parse_args=True,
+        cli_parse_args=False,
         cli_parse_none_str=False,
         env_file=DOTENV_FILE,
         env_file_encoding="utf-8",
@@ -46,13 +45,22 @@ class QiConfigManager(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Change source priority order (env trumps environment)."""
         toml_data: dict[str, Any] = {}
         if Path(CONFIG_FILE).exists():
-            with open(CONFIG_FILE, "rb") as f:
-                toml_data = tomllib.load(f).get("qi", {})
+            try:
+                with open(CONFIG_FILE, "rb") as f:
+                    toml_data = tomllib.load(f).get("qi", {})
+            except tomllib.TOMLDecodeError as e:
+                raise SettingsError(f"Error parsing TOML file: {e}")
+
         init_settings.init_kwargs = toml_data
-        return (dotenv_settings, env_settings, init_settings, file_secret_settings)
+        return (
+            dotenv_settings,  # Highest priority
+            env_settings,  # Next
+            init_settings,  # Then TOML data passed via init
+            file_secret_settings,  # Then secrets
+            # settings_cls,  # Then pydantic settings class
+        )
 
     # Core flags
     dev_mode: bool = Field(default=False)
@@ -87,12 +95,22 @@ class QiConfigManager(BaseSettings):
     def _parse_addon_paths(cls, v: str | list[str]) -> list[str]:
         """
         Parse the addon paths from a string or list of strings and normalize them to absolute paths.
+        Filters out empty or whitespace-only path strings before resolving.
         """
         if isinstance(v, str):
-            paths = v.split(os.pathsep)
+            paths_str = v.split(os.pathsep)
         elif isinstance(v, list):
-            paths = v
-        return [Path(p).resolve().as_posix() for p in paths if p]
+            paths_str = v
+        else:  # Should not happen with type hints, but good for robustness
+            return []
+
+        resolved_paths = []
+        for p_str in paths_str:
+            if (
+                p_str and p_str.strip()
+            ):  # Check if string is not empty and not just whitespace
+                resolved_paths.append(Path(p_str.strip()).resolve().as_posix())
+        return resolved_paths
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -128,8 +146,3 @@ except SettingsError as e:
     raise SettingsError(
         f"Failed to load configuration file. Please check the file is valid and try again. {e}"
     )
-
-if not qi_config.dev_mode:
-    log.info("QI PRODUCTION MODE: Pydantic validation disabled for performance.")
-else:
-    log.info("QI DEV MODE: Pydantic validation enabled.")

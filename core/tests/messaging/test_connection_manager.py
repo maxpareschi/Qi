@@ -6,8 +6,8 @@ import pytest
 from core.bases.models import QiSession
 from core.messaging.connection_manager import QiConnectionManager
 
-# Mark all tests in this module as asyncio
-pytestmark = pytest.mark.asyncio
+# Mark all tests in this module as anyio
+pytestmark = pytest.mark.anyio
 
 
 class MockWebSocket:

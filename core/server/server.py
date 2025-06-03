@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from core.bases.models import QiMessage, QiSession
 from core.config import qi_config
-from core.logging import get_logger
+from core.logger import get_logger
 from core.messaging.hub import qi_hub
 from core.server.middleware import (
     QiDevProxyMiddleware,
