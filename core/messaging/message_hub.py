@@ -11,7 +11,7 @@ from core.messaging.message_bus import QiMessageBus
 log = get_logger(__name__)
 
 
-class QiHub:
+class QiMessageHub:
     """
     Facade (“hub”) that exposes a simple API to developers:
       • register(socket=..., session=...)
@@ -45,7 +45,7 @@ class QiHub:
         # event_name → [callback_fn]
         self._event_hooks: dict[str, list[Any]] = {}
 
-    # —————— SESSION LIFECYCLE (Facade) ——————
+    ########### SESSION LIFECYCLE (Facade) ###########
 
     async def register(self, *, socket: Any, session: QiSession) -> None:
         """
@@ -72,7 +72,7 @@ class QiHub:
         # Fire any "unregister" hooks
         await self._fire(event_name="unregister", *(session_id,))
 
-    # —————— HANDLER SUBSCRIPTION (Facade) ——————
+    ########### HANDLER SUBSCRIPTION (Facade) ###########
 
     def on(self, topic: str, *, session_id: str = HUB_ID):
         """
@@ -117,7 +117,7 @@ class QiHub:
             except Exception:
                 log.exception(f"Event hook '{event_name}' raised an exception")
 
-    # —————— PUBLISH / REQUEST (Facade) ——————
+    ########### PUBLISH / REQUEST (Facade) ###########
 
     async def publish(self, *, message: QiMessage) -> None:
         """
@@ -169,7 +169,7 @@ class QiHub:
             session_id=session_id,
         )
 
-    # —————— FALL THROUGH to the underlying bus for any other methods ——————
+    ########### FALL THROUGH to the underlying bus for any other methods ###########
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -181,4 +181,4 @@ class QiHub:
 
 
 # Instantiate a single module‐level QiHub for convenience:
-hub = QiHub()
+qi_message_hub = QiMessageHub()

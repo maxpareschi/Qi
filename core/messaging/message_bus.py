@@ -41,7 +41,7 @@ class QiMessageBus:
 
         self._lock = asyncio.Lock()
 
-    # —————— SESSION LIFECYCLE ——————
+    ########### SESSION LIFECYCLE ###########
 
     async def register(self, *, socket: WebSocket, session: QiSession) -> None:
         """
@@ -81,7 +81,7 @@ class QiMessageBus:
 
         # (Optional) lifecycle hooks could go here
 
-    # —————— HANDLER SUBSCRIPTION API ——————
+    ########### HANDLER SUBSCRIPTION API ###########
 
     def on(self, topic: str, *, session_id: str = HUB_ID):
         """
@@ -108,7 +108,7 @@ class QiMessageBus:
 
         return decorator
 
-    # —————— PUBLISH VS REQUEST ——————
+    ########### PUBLISH VS REQUEST ###########
 
     async def publish(self, *, message: QiMessage) -> None:
         """
@@ -215,7 +215,7 @@ class QiMessageBus:
                 self._pending_request_futures.pop(message_id, None)
                 self._session_to_pending.get(session_id, set()).discard(message_id)
 
-    # —————— INTERNAL DISPATCH & REPLY LOGIC ——————
+    ########### INTERNAL DISPATCH & REPLY LOGIC ###########
 
     async def _dispatch_and_maybe_reply(self, *, message: QiMessage) -> None:
         """
