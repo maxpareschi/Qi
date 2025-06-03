@@ -23,7 +23,7 @@ class QiMessageBus:
 
     ● Maintains a QiConnectionManager to track live sockets/sessions
     ● Maintains a QiHandlerRegistry to track topic → handler functions per session
-    ● Tracks in‐flight REQUEST futures, so that a handler’s return value can be
+    ● Tracks in‐flight REQUEST futures, so that a handler's return value can be
       auto‐wrapped as a REPLY back to the original requester.
     """
 
@@ -126,7 +126,7 @@ class QiMessageBus:
             async with self._lock:
                 future = self._pending_request_futures.pop(message.reply_to, None)
                 if future:
-                    # Remove this message_id from the originating session’s set
+                    # Remove this message_id from the originating session's set
                     for session_id, pending_ids in self._session_to_pending.items():
                         if message.reply_to in pending_ids:
                             pending_ids.remove(message.reply_to)
@@ -136,7 +136,7 @@ class QiMessageBus:
                 future.set_result(message.payload)
             return
 
-        # 2) Otherwise, it’s either EVENT or REQUEST
+        # 2) Otherwise, it's either EVENT or REQUEST
         await self._dispatch_and_maybe_reply(message=message)
 
     async def request(
@@ -159,8 +159,9 @@ class QiMessageBus:
             context:           optional context info
             timeout:           seconds to wait before raising asyncio.TimeoutError
             target:            list of target logical_ids (if omitted, it's a broadcast)
-            parent_logical_id: optional parent logical_id for “bubble” logic
-            session_id:        this session’s logical ID
+            parent_logical_id: optional parent logical_id for "bubble" logic
+            parent_logical_id: optional parent logical_id for "bubble" logic
+            session_id:        this session's logical ID
 
         Returns:
             The payload returned by the first handler that produces a non‐None result.
@@ -189,7 +190,6 @@ class QiMessageBus:
             reply_to=None,
             context=QiContext(**context) if context else None,
             payload=payload,
-            timestamp=None,
             bubble=False,
         )
 
@@ -268,7 +268,6 @@ class QiMessageBus:
                     reply_to=message.message_id,
                     context=message.context,
                     payload=reply_payload,
-                    timestamp=None,
                     bubble=False,
                 )
                 await self._fan_out(message=reply_message)
@@ -302,7 +301,7 @@ class QiMessageBus:
         elif message.bubble and message.sender.parent_logical_id:
             logical_targets = [message.sender.parent_logical_id]
         else:
-            logical_targets = []  # empty means “broadcast”
+            logical_targets = []  # empty means "broadcast"
 
         if logical_targets:
             live_map = await self._connection_manager.snapshot_sessions_by_logical(

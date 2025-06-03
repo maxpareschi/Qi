@@ -57,7 +57,11 @@ def create_mock_session(
 
 @pytest.fixture
 def mock_connection_manager():
-    return AsyncMock(spec=QiConnectionManager)
+    mgr = AsyncMock(spec=QiConnectionManager)
+    # Always return a dict for these async methods to avoid coroutine errors in tests
+    mgr.snapshot_sessions_by_logical.return_value = {}
+    mgr.snapshot_sockets.return_value = {}
+    return mgr
 
 
 @pytest.fixture
