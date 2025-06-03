@@ -1,18 +1,18 @@
-from __future__ import annotations
+# core/bases/models.py
 
 import time
 from enum import Enum
-from typing import Any, Awaitable, Callable, List, Tuple, TypeAlias
+from typing import Any, Awaitable, Callable, TypeAlias
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import qi_config
 
-TupleKey2: TypeAlias = Tuple[str | None, str | None]
+TupleKey2: TypeAlias = tuple[str | None, str | None]
 """Type alias for a tuple of two strings or None."""
 
-TupleKey3: TypeAlias = Tuple[str | None, str | None, str | None]
+TupleKey3: TypeAlias = tuple[str | None, str | None, str | None]
 """Type alias for a tuple of three strings or None."""
 
 
@@ -74,7 +74,7 @@ class QiSession(QiBaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     logical_id: str
     parent_logical_id: str | None = None
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
     # VALIDATORS ARE DISABLED FOR NOW, NO NEED ON LOCALHOST USUALLY
     #
@@ -97,7 +97,7 @@ class QiMessage(QiBaseModel):
     topic: str
     type: QiMessageType
     sender: QiSession
-    target: List[str] = Field(default_factory=list)
+    target: list[str] = Field(default_factory=list)
     reply_to: str | None = None
     context: QiContext | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

@@ -1,6 +1,8 @@
+# core/logging.py
+
 import logging
 
-from core import qi_config
+from core.config import qi_config
 
 # ANSI color codes
 COLORS = {
