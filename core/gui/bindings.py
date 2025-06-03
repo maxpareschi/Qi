@@ -6,7 +6,7 @@ from core.bus import (
     get_window_id_from_source,
 )
 from core.gui.window_manager import QiWindowManager
-from core.logger import get_logger
+from core.logging import get_logger
 
 log = get_logger(__name__)
 

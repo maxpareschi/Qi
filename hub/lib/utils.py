@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-from core.logger import WARNING, get_logger, set_level
+from core.logging import WARNING, get_logger, set_level
 
 log = get_logger(__name__)
 

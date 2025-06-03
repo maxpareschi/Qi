@@ -5,14 +5,15 @@ from collections import defaultdict
 from typing import Any, Final
 
 from core.bases.models import QiHandler, QiMessage, QiMessageType
-from core.logger import get_logger
+from core.logging import get_logger
 
 log = get_logger(__name__)
 
 
 class QiHandlerRegistry:
     """
-    Manages subscriptions of handler functions to specific message topics.
+    Manages subscriptions of handler functions to specific message topics
+    within the Qi messaging system.
 
     This registry allows:
     - Registering multiple handlers for a single topic.
@@ -87,7 +88,18 @@ class QiHandlerRegistry:
                     return await handler(message)
                 else:
                     # Run synchronous handlers in a separate thread to avoid blocking asyncio loop
-                    return await asyncio.to_thread(handler, message)
+                    # run perf metrics and warn if it takes too long
+                    start_time = asyncio.get_event_loop().time()
+                    result = await asyncio.to_thread(handler, message)
+                    duration = asyncio.get_event_loop().time() - start_time
+
+                    # Warn about long-running sync handlers
+                    if duration > 0.1:  # 100ms threshold
+                        log.warning(
+                            f"Sync handler for {message.topic} took {duration:.2f}s. "
+                            "Use @cpu_bound decorator for CPU-intensive tasks."
+                        )
+                    return result
             except Exception as e:  # noqa: BLE001
                 log.error(
                     f"Handler error for topic [{message.topic}] (single handler): {e}"
@@ -137,11 +149,17 @@ class QiHandlerRegistry:
         async with self._lock:
             handler_ids = self._by_session.pop(session_id, set())
 
-            # O(h) cleanup using reverse lookup (h = number of handlers for this session)
+            # Clean up reverse mapping and topic entries
             for handler_id in handler_ids:
+                # Remove from reverse mapping
                 topic = self._handler_to_topic.pop(handler_id, None)
+
+                # Remove from topic registry
                 if topic and topic in self._by_topic:
-                    self._by_topic[topic].pop(handler_id, None)
-                    # Remove topic from _by_topic if it no longer has any handlers
+                    # Safely remove handler from topic
+                    if handler_id in self._by_topic[topic]:
+                        del self._by_topic[topic][handler_id]
+
+                    # Clean up empty topics
                     if not self._by_topic[topic]:
                         del self._by_topic[topic]

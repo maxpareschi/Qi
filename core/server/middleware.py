@@ -7,7 +7,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import FileResponse, RedirectResponse
 
-from core.logger import get_logger
+from core.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -111,6 +111,11 @@ class QiSPAStaticFilesMiddleware(BaseHTTPMiddleware):
 
         if file_path.is_file():
             content_type, _ = mimetypes.guess_type(str(file_path))
+            if content_type and (
+                content_type.startswith("text/")
+                or content_type == "application/javascript"
+            ):
+                content_type += "; charset=utf-8"
             return FileResponse(str(file_path), media_type=content_type or "text/plain")
 
         return await call_next(request)

@@ -4,14 +4,15 @@ from typing import Final
 from fastapi import WebSocket
 
 from core.bases.models import QiSession
-from core.logger import get_logger
+from core.logging import get_logger
 
 log = get_logger(__name__)
 
 
 class QiConnectionManager:
     """
-    Manages active WebSocket connections and their associated QiSession objects.
+    Manages active WebSocket connections and their associated QiSession objects
+    as part of the Qi messaging infrastructure.
 
     This class provides a registry for:
     - Mapping session_id to WebSocket objects.
@@ -61,8 +62,8 @@ class QiConnectionManager:
         This method is thread-safe.
         """
         async with self._lock:
-            for sid in list(self._sockets):  # Iterate over a copy of keys
-                await self._unsafe_unregister(sid)
+            for session_id in list(self._sockets):  # Iterate over a copy of keys
+                await self._unsafe_unregister(session_id)
 
     async def get_socket(self, session_id: str) -> WebSocket | None:
         """
@@ -119,7 +120,7 @@ class QiConnectionManager:
         return self._logical_to_session.get(logical_id)
 
     async def _unsafe_register(
-        self, socket: WebSocket, session: QiSession, visited: set[str] = set()
+        self, socket: WebSocket, session: QiSession, visited: set[str] | None = None
     ) -> None:
         """
         Internal, unsafe method to register a session. Assumes lock is held.
@@ -131,15 +132,15 @@ class QiConnectionManager:
             visited: A set of visited session IDs to prevent cycles during potential
                      recursive calls to unregister (primarily from hot-reloading).
         """
+        visited = visited or set()
+
         if old_socket := self._sockets.pop(session.id, None):
             await self._safe_close(old_socket)
 
         if previous_session_id := self._logical_to_session.get(session.logical_id):
             if previous_session_id not in visited:
                 # Pass a copy of visited for safety in recursive calls
-                await self._unsafe_unregister(
-                    previous_session_id, visited=visited.copy()
-                )
+                await self._unsafe_unregister(previous_session_id, visited=visited)
             else:
                 log.warning(
                     f"Skipping unregister for {previous_session_id} in _unsafe_register due to potential cycle."
@@ -154,37 +155,46 @@ class QiConnectionManager:
             )
 
     async def _unsafe_unregister(
-        self, session_id: str, visited: set[str] = set()
+        self, session_id: str, visited: set[str] | None = None
     ) -> None:
         """
         Internal, unsafe method to unregister a session. Assumes lock is held.
-        Recursively unregisters child sessions and performs cycle detection.
+        Uses iterative stack approach to unregister child sessions.
 
         Args:
             session_id: The ID of the session to unregister.
             visited: A set of visited session IDs to prevent infinite recursion in case of cycles.
         """
-        if session_id in visited:
-            log.warning(
-                f"Cycle detected during unregister for session {session_id}. Aborting further recursion for this path."
-            )
-            return
-        visited.add(session_id)
+        stack = [session_id]
+        visited = visited or set()
 
-        socket = self._sockets.pop(session_id, None)
-        session = self._sessions.pop(session_id, None)
-        if not session:
-            return
+        while stack:
+            current_id = stack.pop()
+            if current_id in visited:
+                log.warning(
+                    f"Cycle detected during unregister for session {current_id}."
+                )
+                continue
+            visited.add(current_id)
 
-        self._logical_to_session.pop(session.logical_id, None)
+            socket = self._sockets.pop(current_id, None)
+            session = self._sessions.pop(current_id, None)
+            if not session:
+                continue
 
-        child_logical_ids = self._children.pop(session.logical_id, set())
-        for child_logical in child_logical_ids:
-            if child_session_id := self._logical_to_session.get(child_logical):
-                await self._unsafe_unregister(child_session_id, visited.copy())
+            self._logical_to_session.pop(session.logical_id, None)
+            child_logical_ids = self._children.pop(session.logical_id, set())
 
-        if socket:
-            await self._safe_close(socket)
+            # Add child sessions to stack
+            for child_logical in child_logical_ids:
+                if child_session_id := self._logical_to_session.get(child_logical):
+                    stack.append(child_session_id)
+
+            if socket:
+                await self._safe_close(socket)
+
+            if len(stack) > 1000:
+                log.warning("Deep session hierarchy detected")
 
     async def _safe_close(self, socket: WebSocket) -> None:
         """

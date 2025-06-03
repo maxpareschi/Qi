@@ -6,8 +6,8 @@ from typing import Any, Final
 from fastapi import WebSocket
 
 from core.bases.models import QiCallback, QiMessage, QiSession
-from core.logger import get_logger
-from core.network.message_bus import QiMessageBus
+from core.logging import get_logger
+from core.messaging.message_bus import QiMessageBus
 
 log = get_logger(__name__)
 
@@ -22,6 +22,7 @@ class QiHub:
 
     Most of its messaging functionalities are delegated to an internal QiMessageBus instance.
     A global instance of this class (`hub`) is provided for easy access throughout an application.
+    As such any direct instantiation of this class is not intended and actively discouraged.
     """
 
     def __init__(self) -> None:
@@ -150,6 +151,12 @@ class QiHub:
 
         Returns:
             A decorator function for registering the QiHandler.
+
+        NOTE: For CPU-bound vs IO-bound operations:
+            - Use async handlers for I/O-bound work
+            - Use @cpu_bound decorator for CPU-intensive tasks
+            - Sync handlers should complete in <100ms
+        check perf metrics on logs to ensure handlers are efficient
         """
         return self._bus.on(topic, session_id=session_id)
 

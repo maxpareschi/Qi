@@ -16,9 +16,9 @@ from core.bases.models import (
     QiSession,
 )
 from core.config import qi_config
-from core.logger import get_logger
-from core.network.connection_manager import QiConnectionManager
-from core.network.handler_registry import QiHandlerRegistry
+from core.logging import get_logger
+from core.messaging.connection_manager import QiConnectionManager
+from core.messaging.handler_registry import QiHandlerRegistry
 
 log = get_logger(__name__)
 
@@ -129,6 +129,12 @@ class QiMessageBus:
 
         Raises:
             ValueError: If the provided handler is not callable.
+
+        NOTE: For CPU-bound vs IO-bound operations:
+            - Use async handlers for I/O-bound work
+            - Use @cpu_bound decorator for CPU-intensive tasks
+            - Sync handlers should complete in <100ms
+        check perf metrics on logs to ensure handlers are efficient
         """
 
         def _decorator(function: QiHandler):
@@ -157,23 +163,17 @@ class QiMessageBus:
         Args:
             message: The QiMessage object to process.
         """
-        if message.topic.startswith("hub.") and message.sender.logical_id != HUB_ID:
-            log.warning(
-                f"Unauthorised publish to topic '{message.topic}' by sender '{message.sender.logical_id}'."
-            )
-            return
-
         if message.type is QiMessageType.REPLY and message.reply_to:
             request_future: RequestFuture | None = None
             async with self._lock:
                 request_future = self._cleanup_pending_request(message.reply_to)
 
-            if request_future and not request_future.reply_future.done():
-                request_future.reply_future.set_result(message.payload)
-            elif not request_future:
-                log.warning(
-                    f"Received reply for unknown or already handled request_id: {message.reply_to}"
-                )
+                if request_future and not request_future.reply_future.done():
+                    request_future.reply_future.set_result(message.payload)
+                elif not request_future:
+                    log.warning(
+                        f"Received reply for unknown or already handled request_id: {message.reply_to}"
+                    )
             return  # Reply message processing stops here
 
         # For non-reply messages or if reply was for an unknown request, dispatch to handlers.

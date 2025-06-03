@@ -12,8 +12,8 @@ from pydantic import ValidationError
 
 from core.bases.models import QiMessage, QiSession
 from core.config import qi_config
-from core.logger import get_logger
-from core.network.hub import hub
+from core.logging import get_logger
+from core.messaging.hub import hub
 from core.server.middleware import (
     QiDevProxyMiddleware,
     QiSPAStaticFilesMiddleware,
@@ -61,13 +61,13 @@ async def ws_endpoint(ws: WebSocket):
         init_data = await ws.receive_json()
         # Attempt to validate the session data first
         try:
-            session = QiSession.model_validate(init_data)
+            session = QiSession(**init_data)
         except ValidationError as e:
             log.warning(f"Invalid session initialization data: {e}. Raw: {init_data}")
             await ws.close(
                 code=4401
             )  # 4401: Custom code for Unauthorized/Invalid Session
-            return
+            return  # Prevent further processing after closing
 
         # If session is validated, proceed to register
         await hub.register(ws, session)
@@ -98,7 +98,7 @@ async def ws_endpoint(ws: WebSocket):
     try:
         async for raw_json_message in ws.iter_json():
             try:
-                message = QiMessage.model_validate(raw_json_message)
+                message = QiMessage(**raw_json_message)
                 await hub.publish(message)
             except ValidationError as e:
                 log.warning(

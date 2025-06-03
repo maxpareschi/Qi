@@ -2,7 +2,6 @@
 
 import os
 import tomllib
-from dataclasses import field  # noqa
 from pathlib import Path
 from typing import Any, Self, Type
 
@@ -16,6 +15,7 @@ from pydantic_settings import (
 )
 
 from core.constants import BASE_PATH, CONFIG_FILE, DOTENV_FILE
+from core.logging import log
 
 
 class QiConfigManager(BaseSettings):
@@ -60,7 +60,7 @@ class QiConfigManager(BaseSettings):
     headless: bool = Field(default=False)
 
     # Network
-    host: str = Field(default="127.0.0.1")
+    host: str = Field(default="localhost")
     port: int = Field(default=8000)
 
     # SSL
@@ -122,17 +122,14 @@ class QiConfigManager(BaseSettings):
 
 
 try:
-    _config = QiConfigManager()
+    qi_config: QiConfigManager = QiConfigManager()
+
 except SettingsError as e:
-    print(e)
     raise SettingsError(
-        "Failed to load configuration file. Please check the file is valid and try again."
+        f"Failed to load configuration file. Please check the file is valid and try again. {e}"
     )
 
-if _config.dev_mode:
-    from pydantic.dataclasses import dataclass as dataclass
+if not qi_config.dev_mode:
+    log.info("QI PRODUCTION MODE: Pydantic validation disabled for performance.")
 else:
-    from dataclasses import dataclass as dataclass
-
-
-qi_config: QiConfigManager = _config
+    log.info("QI DEV MODE: Pydantic validation enabled.")
