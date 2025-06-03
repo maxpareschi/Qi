@@ -1,7 +1,7 @@
 # core/messaging/hub.py
 
 import asyncio
-from typing import Any
+from typing import Any, Final
 
 from core.bases.models import QiMessage, QiSession
 from core.constants import HUB_ID
@@ -11,7 +11,7 @@ from core.messaging.message_bus import QiMessageBus
 log = get_logger(__name__)
 
 
-class QiMessageHub:
+class QiHub:
     """
     Facade (“hub”) that exposes a simple API to developers:
       • register(socket=..., session=...)
@@ -181,4 +181,4 @@ class QiMessageHub:
 
 
 # Instantiate a single module‐level QiHub for convenience:
-qi_message_hub = QiMessageHub()
+qi_hub: Final[QiHub] = QiHub()

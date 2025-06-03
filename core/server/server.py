@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from core.bases.models import QiMessage, QiSession
 from core.config import qi_config
 from core.logging import get_logger
-from core.messaging.message_hub import qi_message_hub
+from core.messaging.hub import qi_hub
 from core.server.middleware import (
     QiDevProxyMiddleware,
     QiSPAStaticFilesMiddleware,
@@ -70,7 +70,7 @@ async def ws_endpoint(ws: WebSocket):
             return  # Prevent further processing after closing
 
         # If session is validated, proceed to register
-        await qi_message_hub.register(ws, session)
+        await qi_hub.register(ws, session)
         log.info(
             f"WebSocket session registered: {session.logical_id} (id: {session.id})"
         )
@@ -88,7 +88,7 @@ async def ws_endpoint(ws: WebSocket):
         log.error(f"Session registration failed: {e}")
         # Ensure session object is available for unregister if it was created
         if session:
-            await qi_message_hub.unregister(session.id)
+            await qi_hub.unregister(session.id)
         await ws.close(
             code=4500
         )  # 4500: Custom code for Internal Server Error / Registration Failed
@@ -99,7 +99,7 @@ async def ws_endpoint(ws: WebSocket):
         async for raw_json_message in ws.iter_json():
             try:
                 message = QiMessage(**raw_json_message)
-                await qi_message_hub.publish(message)
+                await qi_hub.publish(message)
             except ValidationError as e:
                 log.warning(
                     f"Invalid message from session {session.id if session else 'Unknown'}: {e}. Raw: {raw_json_message}"
@@ -123,7 +123,7 @@ async def ws_endpoint(ws: WebSocket):
             log.info(
                 f"Unregistering WebSocket session: {session.logical_id} (id: {session.id})"
             )
-            await qi_message_hub.unregister(session.id)
+            await qi_hub.unregister(session.id)
         else:
             log.info(
                 "WebSocket connection closed without successful session registration."
