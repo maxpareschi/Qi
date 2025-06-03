@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+from asyncio import Future
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Awaitable, Callable, List, Tuple, TypeAlias
 from uuid import uuid4
@@ -88,6 +90,12 @@ class QiMessage(BaseModel):
         if len(value) > 100:  # Reasonable number of top-level keys
             raise ValueError("payload has too many top-level keys (max 100)")
         return value
+
+
+@dataclass
+class QiRequestTracker:
+    reply_future: Future
+    requesting_session_id: str
 
 
 QiCallback: TypeAlias = Callable[..., Any]
