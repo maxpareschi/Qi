@@ -1,11 +1,10 @@
-from __future__ import annotations
+# core/messaging/hub.py
 
 import asyncio
-from typing import Any, Final
+from typing import Any
 
-from fastapi import WebSocket
-
-from core.bases.models import QiCallback, QiMessage, QiSession
+from core.bases.models import QiMessage, QiSession
+from core.constants import HUB_ID
 from core.logging import get_logger
 from core.messaging.message_bus import QiMessageBus
 
@@ -14,170 +13,172 @@ log = get_logger(__name__)
 
 class QiHub:
     """
-    Public facade for interacting with the Qi messaging system.
+    Facade (“hub”) that exposes a simple API to developers:
+      • register(socket=..., session=...)
+      • unregister(session_id=...)
+      • publish(message=...)
+      • request(...)
+      • on(topic, session_id=...)
+      • on_event(event_name, session_id=...)
 
-    This class provides a simplified interface for common operations like registering
-    sessions, publishing messages, making requests, and subscribing to topics.
-    It also allows for registering event hooks for specific lifecycle events (e.g., session registration).
+    Under the hood, QiHub owns exactly one QiMessageBus instance and forwards
+    calls (or decorators) to it. This is where addons and other modules interact
+    with the message bus.
 
-    Most of its messaging functionalities are delegated to an internal QiMessageBus instance.
-    A global instance of this class (`hub`) is provided for easy access throughout an application.
-    As such any direct instantiation of this class is not intended and actively discouraged.
+    Usage example:
+
+        # in some addon initialization code:
+        @hub.on("my.topic", session_id="my-addon-session")
+        async def handle_my_topic(message: QiMessage):
+            ...
+
+        # somewhere else:
+        response = await hub.request(
+            topic="my.topic",
+            payload={"foo": "bar"},
+            session_id="my-other-session"
+        )
     """
 
     def __init__(self) -> None:
-        """Initializes the QiHub with a new QiMessageBus and an empty hooks dictionary."""
         self._bus = QiMessageBus()
-        self._hooks: dict[str, list[QiCallback]] = {}
+        # event_name → [callback_fn]
+        self._event_hooks: dict[str, list[Any]] = {}
 
-    def on_event(self, name: str):
+    # —————— SESSION LIFECYCLE (Facade) ——————
+
+    async def register(self, *, socket: Any, session: QiSession) -> None:
         """
-        Decorator to register a callback function for a specific hub event.
+        Called by the WebSocket endpoint immediately after handshake.
+        Registers a new session in the bus.
+
+        Args:
+            socket:  the accepted WebSocket
+            session: a QiSession object
+        """
+        await self._bus.register(socket=socket, session=session)
+        # Fire any "register" hooks
+        await self._fire(event_name="register", *(session,))
+
+    async def unregister(self, *, session_id: str) -> None:
+        """
+        Called by the WebSocket endpoint when the client disconnects.
+        Unregisters from the bus.
+
+        Args:
+            session_id: the low‐level session ID to tear down
+        """
+        await self._bus.unregister(session_id=session_id)
+        # Fire any "unregister" hooks
+        await self._fire(event_name="unregister", *(session_id,))
+
+    # —————— HANDLER SUBSCRIPTION (Facade) ——————
+
+    def on(self, topic: str, *, session_id: str = HUB_ID):
+        """
+        Decorator shortcut for subscribing to a topic.
 
         Example:
-            @hub.on_event("register")
-            async def my_on_register_callback(session_info: QiSession):
-                log.info(f"Session registered: {session_info.logical_id}")
+            @hub.on("some.topic", session_id="my-session")
+            async def my_handler(message: QiMessage):
+                ...
+        """
+        return self._bus.on(topic=topic, session_id=session_id)
 
-        Args:
-            name: The name of the event to subscribe to (e.g., "register", "unregister", "publish").
+    def on_event(self, event_name: str, *, session_id: str = HUB_ID):
+        """
+        Decorator to register a synchronous or asynchronous "lifecycle hook"
+        (e.g. when a session registers/unregisters).
 
-        Returns:
-            A decorator function that registers the decorated callback.
+        Currently, hooks are stored internally and fired manually by register()/unregister().
         """
 
-        def _decorator(callback: QiCallback):
-            """Registers the provided callback for the specified event name."""
-            self._hooks.setdefault(name, []).append(callback)
-            return callback
+        def decorator(callback_fn: Any) -> Any:
+            self._event_hooks.setdefault(event_name, []).append(callback_fn)
+            return callback_fn
 
-        return _decorator
+        return decorator
 
-    async def _fire(self, name: str, *args, run_hooks: bool = False) -> None:
+    async def _fire(self, event_name: str, *args: Any) -> None:
         """
-        Internal method to execute all registered callback hooks for a given event name.
+        Invoke all registered lifecycle hooks for event_name, passing *args.
 
-        Callbacks can be synchronous or asynchronous. Synchronous callbacks are run
-        in a separate thread to avoid blocking the asyncio loop.
-        Exceptions raised by hooks are caught and logged.
-
-        Args:
-            name: The name of the event whose hooks should be fired.
-            *args: Positional arguments to pass to the callback hooks.
-            run_hooks: If False, this method does nothing. Defaults to False.
-                     This flag must be explicitly passed as True by public methods to run hooks.
+        Hooks may be synchronous or asynchronous. Synchronous hooks run in
+        a background thread via asyncio.to_thread.
         """
-        if not run_hooks or name not in self._hooks:
-            return
-
-        for callback in self._hooks[name]:
+        callbacks = self._event_hooks.get(event_name, [])
+        for callback in callbacks:
             try:
                 if asyncio.iscoroutinefunction(callback):
                     await callback(*args)
                 else:
+                    # Run sync hook in a thread
                     await asyncio.to_thread(callback, *args)
-            except Exception as e:  # noqa: BLE001
-                log.error(f"Hook for event '{name}' failed: {e}")
+            except Exception:
+                log.exception(f"Event hook '{event_name}' raised an exception")
 
-    async def register(
-        self, socket: WebSocket, info: QiSession, *, run_hooks: bool = False
-    ) -> None:
+    # —————— PUBLISH / REQUEST (Facade) ——————
+
+    async def publish(self, *, message: QiMessage) -> None:
         """
-        Registers a WebSocket connection and session with the message bus.
-        Optionally fires "register" event hooks.
+        Fire‐and‐forget publish of a QiMessage (EVENT or REPLY).
 
         Args:
-            socket: The WebSocket connection object.
-            info: The QiSession information for this connection.
-            run_hooks: If True, fires "register" event hooks. Defaults to False.
+            message: QiMessage object
         """
-        await self._bus.register(socket, info)
-        # Pass the QiSession info to the hook
-        await self._fire("register", info, run_hooks=run_hooks)
+        await self._bus.publish(message=message)
 
-    async def unregister(self, session_id: str, *, run_hooks: bool = False) -> None:
+    async def request(
+        self,
+        *,
+        topic: str,
+        payload: dict[str, Any],
+        context: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        target: list[str] | None = None,
+        parent_logical_id: str | None = None,
+        session_id: str = HUB_ID,
+    ) -> Any:
         """
-        Unregisters a session from the message bus by its session ID.
-        Optionally fires "unregister" event hooks.
-
-        Args:
-            session_id: The ID of the session to unregister.
-            run_hooks: If True, fires "unregister" event hooks. Defaults to False.
-        """
-        await self._bus.unregister(session_id)
-        # Pass the session_id to the hook
-        await self._fire("unregister", session_id, run_hooks=run_hooks)
-
-    async def publish(self, message: QiMessage, *, run_hooks: bool = False) -> None:
-        """
-        Publishes a message to the message bus.
-        Optionally fires "publish" event hooks.
+        Send a REQUEST to the bus and await exactly one REPLY payload
+        (or a TimeoutError).
 
         Args:
-            message: The QiMessage to publish.
-            run_hooks: If True, fires "publish" event hooks. Defaults to False.
-        """
-        await self._bus.publish(message)
-        await self._fire("publish", message, run_hooks=run_hooks)
-
-    async def request(self, *args, **kwargs) -> Any:
-        """
-        Sends a request message via the message bus and awaits a reply.
-
-        This method delegates directly to the `request` method of the internal QiMessageBus.
-        Refer to `QiMessageBus.request` for detailed arguments and behavior.
+            topic:             the topic string
+            payload:           dict of data
+            context:           optional context
+            timeout:           max seconds to wait for a reply
+            target:            list of target logical_ids (or None for broadcast)
+            parent_logical_id: optional parent logical_id (used if bubble=True)
+            session_id:        the requester's logical ID
 
         Returns:
-            The payload of the reply message.
+            The payload returned by the first handler that responded.
 
         Raises:
-            TimeoutError: If no reply is received within the specified timeout.
-            ValueError: If timeout arguments are invalid.
+            asyncio.TimeoutError if no reply arrives within <timeout>
+            RuntimeError        if too many pending requests exist for this session
         """
-        return await self._bus.request(*args, **kwargs)
+        return await self._bus.request(
+            topic=topic,
+            payload=payload,
+            context=context,
+            timeout=timeout,
+            target=target,
+            parent_logical_id=parent_logical_id,
+            session_id=session_id,
+        )
 
-    def on(self, topic: str, *, session_id: str = "__hub__"):
+    # —————— FALL THROUGH to the underlying bus for any other methods ——————
+
+    def __getattr__(self, name: str) -> Any:
         """
-        Decorator to register a message handler for a specific topic.
-
-        This method delegates directly to the `on` method of the internal QiMessageBus.
-        Handlers registered via `hub.on()` are associated with a special "__hub__" session_id
-        by default, meaning they are not tied to a specific client session lifecycle unless
-        a different `session_id` is provided.
-
-        Args:
-            topic: The message topic to subscribe the handler to.
-            session_id: The session ID to associate with this handler. Defaults to "__hub__".
-
-        Returns:
-            A decorator function for registering the QiHandler.
-
-        NOTE: For CPU-bound vs IO-bound operations:
-            - Use async handlers for I/O-bound work
-            - Use @cpu_bound decorator for CPU-intensive tasks
-            - Sync handlers should complete in <100ms
-        check perf metrics on logs to ensure handlers are efficient
+        For any attribute not explicitly defined on QiHub, delegate to QiMessageBus.
         """
-        return self._bus.on(topic, session_id=session_id)
-
-    def __getattr__(self, item: str) -> Any:
-        """
-        Fallback attribute access to the internal QiMessageBus instance.
-
-        This allows QiHub to expose any additional helper methods or attributes
-        of QiMessageBus without needing to explicitly redefine them in QiHub.
-
-        Args:
-            item: The name of the attribute being accessed.
-
-        Returns:
-            The attribute from the internal QiMessageBus instance.
-
-        Raises:
-            AttributeError: If the attribute is not found on the QiMessageBus.
-        """
-        return getattr(self._bus, item)
+        if name.startswith("_"):
+            raise AttributeError(f"'QiHub' object has no attribute '{name}'")
+        return getattr(self._bus, name)
 
 
-hub: Final = QiHub()
-"""Global singleton instance of the QiHub, providing easy access to messaging functions."""
+# Instantiate a single module‐level QiHub for convenience:
+hub = QiHub()

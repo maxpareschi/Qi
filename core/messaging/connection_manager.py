@@ -1,5 +1,7 @@
+# core/messaging/connection_manager.py
+
 import asyncio
-from typing import Final
+from typing import Iterable
 
 from fastapi import WebSocket
 
@@ -11,229 +13,188 @@ log = get_logger(__name__)
 
 class QiConnectionManager:
     """
-    Manages active WebSocket connections and their associated QiSession objects
-    as part of the Qi messaging infrastructure.
+    Async‐safe registry of active WebSocket connections (FastAPI flavour).
 
-    This class provides a registry for:
-    - Mapping session_id to WebSocket objects.
-    - Mapping logical_id to the current session_id (for hot-reloading/reconnection).
-    - Tracking parent-child relationships between logical_ids for hierarchical cleanup.
-    All operations modifying the internal state are protected by an asyncio.Lock.
+    All writes (register/unregister) are serialized under a single asyncio.Lock.
+    Getters that need to “fan out” can take a bulk snapshot under the same lock,
+    then send messages lock‐free.
+
+    Task code **must** call `unregister(session_id=...)` when a client disconnects;
+    the manager never polls WebSocket.application_state directly.
+
+    Each QiSession has:
+      - `id`:              low‐level unique ID (UUID) for this WebSocket connection
+      - `logical_id`:      developer‐provided key (e.g. “nuke-1234”) used for routing
+      - `parent_logical_id`: optional logical_id of a parent session
+      - `tags`:            metadata list (unused by this manager directly)
     """
 
     def __init__(self) -> None:
-        """Initializes the QiConnectionManager with empty registries and a new lock."""
+        # session_id → WebSocket
         self._sockets: dict[str, WebSocket] = {}
+
+        # session_id → QiSession
         self._sessions: dict[str, QiSession] = {}
+
+        # logical_id → session_id
         self._logical_to_session: dict[str, str] = {}
+
+        # parent_logical_id → set of child logical_ids
         self._children: dict[str, set[str]] = {}
-        self._lock: Final = asyncio.Lock()
 
-    async def register(self, socket: WebSocket, session: QiSession) -> None:
+        # One lock protects all of the above
+        self._lock = asyncio.Lock()
+
+    async def register(self, *, socket: WebSocket, session: QiSession) -> None:
         """
-        Registers a new WebSocket connection and its associated QiSession.
+        Register a new session‐socket pair.
 
-        This method is thread-safe. If a session with the same logical_id already
-        exists, the old session will be unregistered before the new one is registered.
+        If another session already exists with the same logical_id, that old
+        session (and its descendants) are unregistered first.
 
         Args:
-            socket: The FastAPI WebSocket object for the connection.
-            session: The QiSession object containing session metadata.
+            socket:   the WebSocket instance for this session
+            session:  a QiSession object, with fields (id, logical_id, parent_logical_id, tags)
         """
         async with self._lock:
-            await self._unsafe_register(socket, session)
+            # If this logical_id is already in use, tear down the old one first
+            previous_session_id = self._logical_to_session.get(session.logical_id)
+            if previous_session_id:
+                await self._unsafe_unregister(previous_session_id)
 
-    async def unregister(self, session_id: str) -> None:
+            # Now insert the new session
+            self._sessions[session.id] = session
+            self._sockets[session.id] = socket
+            self._logical_to_session[session.logical_id] = session.id
+
+            # If the new session has a parent, link it in the children map
+            if session.parent_logical_id:
+                self._children.setdefault(session.parent_logical_id, set()).add(
+                    session.logical_id
+                )
+
+    async def unregister(self, *, session_id: str) -> None:
         """
-        Unregisters a session by its session_id.
-
-        This involves closing its WebSocket, removing it from all internal registries,
-        and recursively unregistering any child sessions.
-        This method is thread-safe.
+        Unregister a session (identified by its low‐level session_id).
+        Also unregisters any child sessions (recursively).
 
         Args:
-            session_id: The unique ID of the session to unregister.
+            session_id: the unique ID of the session to remove
         """
         async with self._lock:
             await self._unsafe_unregister(session_id)
 
-    async def close_all(self) -> None:
-        """Closes all currently registered WebSocket connections and unregisters all sessions.
-        This method is thread-safe.
+    async def _unsafe_unregister(self, session_id: str) -> None:
         """
-        async with self._lock:
-            for session_id in list(self._sockets):  # Iterate over a copy of keys
-                await self._unsafe_unregister(session_id)
+        (Called under lock) Remove the given session_id and all of its descendants.
 
-    async def get_socket(self, session_id: str) -> WebSocket | None:
+        Uses a stack to avoid recursion depth issues. For each session popped:
+          - remove from _sessions, _sockets, _logical_to_session
+          - enqueue any child logical_ids for later teardown
+          - schedule socket.close() asynchronously (outside the lock)
         """
-        Retrieves the WebSocket object for a given session_id in a thread-safe manner.
-
-        Args:
-            session_id: The ID of the session whose WebSocket is requested.
-
-        Returns:
-            The WebSocket object if found, otherwise None.
-        """
-        async with self._lock:
-            return self._get_socket(session_id)
-
-    async def get_live_session_id(self, logical_id: str) -> str | None:
-        """
-        Retrieves the current (live) session_id for a given logical_id.
-        This is useful for finding the active session for a known logical client identifier.
-        This method is thread-safe.
-
-        Args:
-            logical_id: The logical identifier of the session.
-
-        Returns:
-            The current session_id if a live session exists for this logical_id, otherwise None.
-        """
-        async with self._lock:
-            return self._get_live_session_id(logical_id)
-
-    def _get_socket(self, session_id: str) -> WebSocket | None:
-        """
-        Fast, unsafe getter for a WebSocket by session_id.
-        Assumes the caller holds the lock or guarantees no concurrent modifications.
-
-        Args:
-            session_id: The ID of the session.
-
-        Returns:
-            The WebSocket object or None.
-        """
-        return self._sockets.get(session_id)
-
-    def _get_live_session_id(self, logical_id: str) -> str | None:
-        """
-        Fast, unsafe getter for a live session_id by logical_id.
-        Assumes the caller holds the lock or guarantees no concurrent modifications.
-
-        Args:
-            logical_id: The logical identifier of the session.
-
-        Returns:
-            The current session_id or None.
-        """
-        return self._logical_to_session.get(logical_id)
-
-    async def _unsafe_register(
-        self, socket: WebSocket, session: QiSession, visited: set[str] | None = None
-    ) -> None:
-        """
-        Internal, unsafe method to register a session. Assumes lock is held.
-        Handles replacement of existing sessions for a given logical_id.
-
-        Args:
-            socket: The WebSocket object.
-            session: The QiSession data.
-            visited: A set of visited session IDs to prevent cycles during potential
-                     recursive calls to unregister (primarily from hot-reloading).
-        """
-        visited = visited or set()
-
-        if old_socket := self._sockets.pop(session.id, None):
-            await self._safe_close(old_socket)
-
-        if previous_session_id := self._logical_to_session.get(session.logical_id):
-            if previous_session_id not in visited:
-                # Pass a copy of visited for safety in recursive calls
-                await self._unsafe_unregister(previous_session_id, visited=visited)
-            else:
-                log.warning(
-                    f"Skipping unregister for {previous_session_id} in _unsafe_register due to potential cycle."
-                )
-
-        self._sockets[session.id] = socket
-        self._sessions[session.id] = session
-        self._logical_to_session[session.logical_id] = session.id
-        if session.parent_logical_id:
-            self._children.setdefault(session.parent_logical_id, set()).add(
-                session.logical_id
-            )
-
-    async def _unsafe_unregister(
-        self, session_id: str, visited: set[str] | None = None
-    ) -> None:
-        """
-        Internal, unsafe method to unregister a session. Assumes lock is held.
-        Uses iterative stack approach to unregister child sessions.
-
-        Args:
-            session_id: The ID of the session to unregister.
-            visited: A set of visited session IDs to prevent infinite recursion in case of cycles.
-        """
-        stack = [session_id]
-        visited = visited or set()
+        stack: list[str] = [session_id]
 
         while stack:
-            current_id = stack.pop()
-            if current_id in visited:
-                log.warning(
-                    f"Cycle detected during unregister for session {current_id}."
-                )
-                continue
-            visited.add(current_id)
+            current_session_id = stack.pop()
+            current_session = self._sessions.pop(current_session_id, None)
+            current_socket = self._sockets.pop(current_session_id, None)
 
-            socket = self._sockets.pop(current_id, None)
-            session = self._sessions.pop(current_id, None)
-            if not session:
-                continue
+            if current_session:
+                logical = current_session.logical_id
+                # Remove this logical_id → session_id mapping
+                self._logical_to_session.pop(logical, None)
 
-            self._logical_to_session.pop(session.logical_id, None)
-            child_logical_ids = self._children.pop(session.logical_id, set())
+                # Find all children of this logical_id
+                child_logicals = self._children.pop(logical, set())
+                for child_logical in child_logicals:
+                    child_session_id = self._logical_to_session.get(child_logical)
+                    if child_session_id:
+                        stack.append(child_session_id)
 
-            # Add child sessions to stack
-            for child_logical in child_logical_ids:
-                if child_session_id := self._logical_to_session.get(child_logical):
-                    stack.append(child_session_id)
-
-            if socket:
-                await self._safe_close(socket)
-
-            if len(stack) > 1000:
-                log.warning("Deep session hierarchy detected")
+            if current_socket:
+                # Schedule a “best‐effort” close outside the lock
+                asyncio.create_task(self._safe_close(current_socket))
 
     async def _safe_close(self, socket: WebSocket) -> None:
         """
-        Safely closes a WebSocket connection, ignoring exceptions if already closed.
+        Best‐effort WebSocket close; swallow any exceptions.
 
         Args:
-            socket: The WebSocket to close.
+            socket: the WebSocket to close
         """
         try:
             await socket.close()
-        except Exception as e:  # noqa: BLE001
-            log.debug(f"Socket already closed or closing: {e}")
+        except Exception:
+            log.exception("Error while closing WebSocket")
 
-    async def get_all_logical_ids(self) -> list[str]:
+    # —————— SNAPSHOT HELPERS ——————
+
+    async def snapshot_sockets(self) -> dict[str, WebSocket]:
         """
-        Retrieves a list of all currently active logical_ids in a thread-safe manner.
+        Take a point‐in‐time snapshot of {session_id → WebSocket} under one lock.
+        Callers can then iterate or filter without acquiring the lock again.
 
         Returns:
-            A list of unique logical_ids.
+            A shallow copy of the internal _sockets dict.
         """
         async with self._lock:
-            return list(self._logical_to_session.keys())
+            return dict(self._sockets)
 
-    async def get_multiple_session_ids(self, logical_ids: list[str]) -> list[str]:
+    async def snapshot_sessions_by_logical(
+        self, logical_ids: Iterable[str]
+    ) -> dict[str, WebSocket]:
         """
-        Retrieves current (live) session_ids for a given list of logical_ids.
-        This method is thread-safe.
+        Take a snapshot of sockets for all sessions whose logical_id is in logical_ids.
+
+        Returns:
+            A dict mapping each matching session_id → WebSocket.
+        """
+        async with self._lock:
+            result: dict[str, WebSocket] = {}
+            for session_id, socket in self._sockets.items():
+                session = self._sessions.get(session_id)
+                if session and session.logical_id in logical_ids:
+                    result[session_id] = socket
+            return result
+
+    # —————— LOCK‐FREE “TRY” GETTERS ——————
+
+    def try_get_socket(self, *, session_id: str) -> WebSocket | None:
+        """
+        Lock‐free attempt to fetch a WebSocket by session_id.
+        May return None if the session was just unregistered.
 
         Args:
-            logical_ids: A list of logical identifiers.
+            session_id: the unique low‐level session ID
 
         Returns:
-            A list of corresponding live session_ids. If a logical_id is not active,
-            it's omitted from the result.
+            The WebSocket if still registered, else None.
         """
-        async with self._lock:
-            result = []
-            for logical_id in logical_ids:
-                session_id = self._logical_to_session.get(logical_id)
-                if session_id is not None:
-                    result.append(session_id)
-            return result
+        return self._sockets.get(session_id)
+
+    def try_get_session(self, *, session_id: str) -> QiSession | None:
+        """
+        Lock‐free attempt to fetch QiSession by session_id.
+        May return None if the session was just unregistered.
+
+        Args:
+            session_id: the unique low‐level session ID
+
+        Returns:
+            The QiSession object if still registered, else None.
+        """
+        return self._sessions.get(session_id)
+
+    def get_children_logicals(self, *, logical_id: str) -> set[str]:
+        """
+        Return a **copy** of the set of child logical_ids of the given logical_id.
+        Lock‐free: may be stale if sessions change simultaneously.
+
+        Args:
+            logical_id: parent’s logical ID
+
+        Returns:
+            A set of child logical IDs (possibly empty).
+        """
+        return set(self._children.get(logical_id, set()))

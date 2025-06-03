@@ -1,165 +1,257 @@
-import asyncio
-import inspect
-import uuid
-from collections import defaultdict
-from typing import Any, Final
+# core/messaging/handler_registry.py
 
-from core.bases.models import QiHandler, QiMessage, QiMessageType
+import asyncio
+from uuid import uuid4
+
+from core.bases.models import QiHandler
 from core.logging import get_logger
 
 log = get_logger(__name__)
+HUB_ID = "__hub__"
 
 
 class QiHandlerRegistry:
     """
-    Manages subscriptions of handler functions to specific message topics
-    within the Qi messaging system.
+    Async‐safe registry of handlers by topic and session_id.
 
-    This registry allows:
-    - Registering multiple handlers for a single topic.
-    - Dispatching incoming messages to all registered handlers for its topic.
-    - Efficiently dropping all handlers associated with a specific session_id.
-
-    Internal Structure:
-        _by_topic: Maps topic (str) to a dict of {handler_id: QiHandler}.
-        _by_session: Maps session_id (str) to a set of handler_ids registered by that session.
-        _handler_to_topic: Maps handler_id (str) to its topic (str) for fast cleanup.
-    All operations modifying the registry are protected by an asyncio.Lock.
+    ● Strong references to QiHandler objects
+    ● One handler_id per (function, topic, session) triplet
+    ● Multi‐session support (the same function can be registered under multiple sessions)
+    ● Removal APIs:
+        - drop_handler(handler_id)
+        - drop_session(session_id)
+    ● Lookup:
+        - get_handlers(topic, session_id) returns handlers in "two‐tier" order
+          (exact session_id first, then HUB_ID handlers)
     """
 
     def __init__(self) -> None:
-        """Initializes the QiHandlerRegistry with empty structures and a new lock."""
-        self._by_topic: defaultdict[str, dict[str, QiHandler]] = defaultdict(dict)
-        self._by_session: defaultdict[str, set[str]] = defaultdict(set)
-        self._handler_to_topic: dict[str, str] = {}  # Fast reverse lookup
-        self._lock: Final = asyncio.Lock()  # Type hint for self._lock
+        # handler_id → (topic, handler_fn)
+        self._by_id: dict[str, QiHandler] = {}
+
+        # topic → { handler_id → QiHandler }
+        self._by_topic: dict[str, dict[str, QiHandler]] = {}
+
+        # session_id → set of handler_ids that session has registered
+        self._by_session: dict[str, set[str]] = {}
+
+        # handler_id → topic (for efficient reverse lookup during cleanup)
+        self._handler_id_to_topic: dict[str, str] = {}
+
+        # lock for concurrent asyncio operations
+        self._lock = asyncio.Lock()
 
     async def register(
-        self, function: QiHandler, *, topic: str, session_id: str
+        self, handler_function: QiHandler, *, topic: str, session_id: str
     ) -> str:
         """
-        Registers a handler function for a specific topic and associates it with a session.
+        Register handler_fn for `topic` under `session_id`.
+        Returns a unique handler_id (UUID string).
+
+        We do NOT dedupe across sessions. If the same function+topic is registered
+        twice under the _same_ session, that will produce two distinct handler_ids.
 
         Args:
-            function: The QiHandler (callable) to be registered.
-            topic: The message topic to subscribe this handler to.
-            session_id: The ID of the session registering this handler. Used for cleanup.
+            handler_fn:  a sync or async callable taking (QiMessage) → Any
+            topic:       message topic string
+            session_id:  logical ID of the session registering this handler
 
         Returns:
-            A unique handler_id string for this registration, which can be used to
-            unregister a specific handler if needed (though not directly implemented here).
+            handler_id (string)
         """
-        handler_id = str(uuid.uuid4())
         async with self._lock:
-            self._by_topic[topic][handler_id] = function
-            self._by_session[session_id].add(handler_id)
-            self._handler_to_topic[handler_id] = topic
-        return handler_id
+            topic_dict = self._by_topic.setdefault(topic, {})
 
-    async def dispatch(self, message: QiMessage) -> Any | None:
+            new_handler_id = str(uuid4())
+            new_handler = handler_function
+
+            # Store in all indexes
+            self._by_id[new_handler_id] = new_handler
+            topic_dict[new_handler_id] = new_handler
+            self._by_session.setdefault(session_id, set()).add(new_handler_id)
+            self._handler_id_to_topic[new_handler_id] = topic
+
+            if __debug__:
+                self._assert_consistency()
+
+            return new_handler_id
+
+    async def drop_handler(self, *, handler_id: str) -> None:
         """
-        Dispatches an incoming message to all registered handlers for its topic.
+        Fully remove a single handler by its handler_id from all indexes.
+        """
+        async with self._lock:
+            if handler_id not in self._by_id:
+                return
 
-        For messages of type REQUEST, it returns the result from the first handler
-        that returns a non-None value. For other message types (e.g., EVENT),
-        all handlers are executed, but their return values are not aggregated beyond logging.
-        If multiple handlers exist, they are executed concurrently.
-        Handler exceptions are caught and logged, not propagated.
+            _ = self._by_id.pop(handler_id, None)
+            topic = self._handler_id_to_topic.pop(handler_id, None)
+
+            # Remove from by_topic
+            if topic and topic in self._by_topic:
+                topic_handlers = self._by_topic[topic]
+                topic_handlers.pop(handler_id, None)
+                if not topic_handlers:
+                    self._by_topic.pop(topic, None)
+
+            # Remove from by_session (reverse map)
+            # A handler_id is unique per registration, so it will be in at most one session's set.
+            for session_id, handler_ids_set in list(
+                self._by_session.items()
+            ):  # Use list for safe iteration if modifying
+                if handler_id in handler_ids_set:
+                    handler_ids_set.remove(handler_id)
+                    if not handler_ids_set:
+                        self._by_session.pop(session_id)
+                    break  # Found and removed, no need to check other sessions
+
+            if __debug__:
+                self._assert_consistency()
+
+    async def drop_session(self, *, session_id: str) -> None:
+        """
+        Detach all handlers registered by `session_id`.
+        Any handler_id not present under another session is fully purged.
 
         Args:
-            message: The QiMessage object to dispatch.
-
-        Returns:
-            The result from a handler if it's a REQUEST message and a handler returns a value,
-            otherwise None.
+            session_id: logical ID whose handlers should be removed
         """
         async with self._lock:
-            # Operate on a copy to release lock quickly before handler execution
-            functions = list(self._by_topic.get(message.topic, {}).values())
+            handler_ids_to_remove = self._by_session.pop(session_id, set())
+            for handler_id in handler_ids_to_remove:
+                _ = self._by_id.pop(handler_id, None)  # Remove from main lookup
+                topic = self._handler_id_to_topic.pop(
+                    handler_id, None
+                )  # Get topic and remove mapping
 
-        if not functions:
-            return None
-
-        # Fast path: single handler (most common)
-        if len(functions) == 1:
-            try:
-                handler = functions[0]
-                if inspect.iscoroutinefunction(handler):
-                    return await handler(message)
-                else:
-                    # Run synchronous handlers in a separate thread to avoid blocking asyncio loop
-                    # run perf metrics and warn if it takes too long
-                    start_time = asyncio.get_event_loop().time()
-                    result = await asyncio.to_thread(handler, message)
-                    duration = asyncio.get_event_loop().time() - start_time
-
-                    # Warn about long-running sync handlers
-                    if duration > 0.1:  # 100ms threshold
-                        log.warning(
-                            f"Sync handler for {message.topic} took {duration:.2f}s. "
-                            "Use @cpu_bound decorator for CPU-intensive tasks."
-                        )
-                    return result
-            except Exception as e:  # noqa: BLE001
-                log.error(
-                    f"Handler error for topic [{message.topic}] (single handler): {e}"
-                )
-                return None
-
-        # Multiple handlers - execute all, gather results
-        results = []
-        # Execute all handlers concurrently
-        tasks = []
-        for handler in functions:
-            if inspect.iscoroutinefunction(handler):
-                tasks.append(handler(message))
-            else:
-                tasks.append(asyncio.to_thread(handler, message))
-
-        # Gather results, logging errors for individual handlers
-        # Using return_exceptions=True to ensure all handlers attempt to run
-        gathered_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for i, result_or_exc in enumerate(gathered_results):
-            if isinstance(result_or_exc, Exception):
-                log.error(
-                    f"Handler error for topic [{message.topic}] (handler {i + 1}/{len(functions)}): {result_or_exc}"
-                )
-                results.append(None)  # Or some other error indicator if needed
-            else:
-                results.append(result_or_exc)
-
-        # Return first non-None result for REQUEST type messages
-        if message.type is QiMessageType.REQUEST:
-            for result in results:
-                if result is not None:
-                    return result
-        return None  # Or potentially a list of all results for EVENTs if that behavior is desired
-
-    async def drop_session(self, session_id: str) -> None:
-        """
-        Removes all handlers associated with a given session_id.
-
-        This is typically called when a session disconnects or is unregistered.
-        It ensures that handlers from a defunct session do not attempt to process messages.
-
-        Args:
-            session_id: The ID of the session whose handlers should be dropped.
-        """
-        async with self._lock:
-            handler_ids = self._by_session.pop(session_id, set())
-
-            # Clean up reverse mapping and topic entries
-            for handler_id in handler_ids:
-                # Remove from reverse mapping
-                topic = self._handler_to_topic.pop(handler_id, None)
-
-                # Remove from topic registry
                 if topic and topic in self._by_topic:
-                    # Safely remove handler from topic
-                    if handler_id in self._by_topic[topic]:
-                        del self._by_topic[topic][handler_id]
+                    topic_handlers = self._by_topic[topic]
+                    topic_handlers.pop(handler_id, None)
+                    if not topic_handlers:  # If topic has no more handlers
+                        self._by_topic.pop(topic)
+            if __debug__:
+                self._assert_consistency()
 
-                    # Clean up empty topics
-                    if not self._by_topic[topic]:
-                        del self._by_topic[topic]
+    async def get_handlers(self, *, topic: str, session_id: str) -> list[QiHandler]:
+        """
+        Return a list of handler functions for `topic`, in two tiers:
+          1) Handlers registered under exactly this session_id
+          2) Handlers registered under the "HUB" (session_id="__hub__")
+
+        Args:
+            topic:      the topic string to look up
+            session_id: logical ID of the requesting session
+
+        Returns:
+            A list of callables (sync or async). If none found, returns an empty list.
+        """
+        handlers_to_call: list[QiHandler] = []
+        seen_ids: set[str] = set()
+
+        async with self._lock:
+            topic_dict = self._by_topic.get(topic, {})
+
+            # First pass: exact session_id
+            for handler_id, handler_fn in topic_dict.items():
+                if handler_id in self._by_session.get(session_id, set()):
+                    handlers_to_call.append(handler_fn)
+                    seen_ids.add(handler_id)
+
+            # Second pass: HUB_ID sessions
+            hub_handlers = self._by_session.get(HUB_ID, set())
+            for handler_id, handler_fn in topic_dict.items():
+                if handler_id not in seen_ids and handler_id in hub_handlers:
+                    handlers_to_call.append(handler_fn)
+                    seen_ids.add(handler_id)
+
+        return handlers_to_call
+
+    def _assert_consistency(self) -> None:
+        """
+        Debug assertion to validate forward/reverse mapping consistency.
+        Ensures that every handler in _by_session appears in _by_topic/_by_id,
+        and vice versa.
+        """
+        # Every handler_id in _by_session must be in _by_id and in _by_topic
+        for session_id, handler_ids in self._by_session.items():
+            for handler_id in handler_ids:
+                assert handler_id in self._by_id, (
+                    f"Handler {handler_id} in by_session[{session_id}] but not in _by_id"
+                )
+                assert handler_id in self._handler_id_to_topic, (
+                    f"Handler {handler_id} in by_session[{session_id}] but not in _handler_id_to_topic"
+                )
+                topic_from_reverse_map = self._handler_id_to_topic[handler_id]
+                assert topic_from_reverse_map in self._by_topic, (
+                    f"Topic {topic_from_reverse_map} for handler {handler_id} not in _by_topic"
+                )
+                assert handler_id in self._by_topic[topic_from_reverse_map], (
+                    f"Handler {handler_id} not in _by_topic[{topic_from_reverse_map}]"
+                )
+
+        # Every handler in _by_topic must appear in _by_id and in some _by_session and _handler_id_to_topic
+        for topic, topic_dict in self._by_topic.items():
+            for handler_id in topic_dict:
+                assert handler_id in self._by_id, (
+                    f"Handler {handler_id} in by_topic[{topic}] but not in _by_id"
+                )
+                assert handler_id in self._handler_id_to_topic, (
+                    f"Handler {handler_id} in by_topic[{topic}] but not in _handler_id_to_topic"
+                )
+                assert self._handler_id_to_topic[handler_id] == topic, (
+                    f"Handler {handler_id} in _by_topic[{topic}] but _handler_id_to_topic maps to {self._handler_id_to_topic[handler_id]}"
+                )
+                found_in_session = any(
+                    handler_id in handler_ids
+                    for handler_ids in self._by_session.values()
+                )
+                assert found_in_session, (
+                    f"Handler {handler_id} in by_topic[{topic}] but not in any by_session"
+                )
+
+        # Every handler in _by_id must be in _by_topic, _by_session, and _handler_id_to_topic
+        for handler_id in self._by_id:
+            assert handler_id in self._handler_id_to_topic, (
+                f"Handler {handler_id} in _by_id but not in _handler_id_to_topic"
+            )
+            topic_from_reverse_map = self._handler_id_to_topic[handler_id]
+            assert (
+                topic_from_reverse_map in self._by_topic
+                and handler_id in self._by_topic[topic_from_reverse_map]
+            ), (
+                f"Handler {handler_id} in _by_id not found correctly in _by_topic via _handler_id_to_topic"
+            )
+            found_in_session = any(
+                handler_id in handler_ids for handler_ids in self._by_session.values()
+            )
+            assert found_in_session, (
+                f"Handler {handler_id} in _by_id but not in any by_session"
+            )
+
+        # Check consistency of _handler_id_to_topic with other maps
+        for handler_id, topic in self._handler_id_to_topic.items():
+            assert handler_id in self._by_id, (
+                f"Handler {handler_id} in _handler_id_to_topic but not in _by_id"
+            )
+            assert topic in self._by_topic and handler_id in self._by_topic[topic], (
+                f"Handler {handler_id} (topic: {topic}) in _handler_id_to_topic but not found in _by_topic"
+            )
+            found_in_session = any(
+                handler_id in handler_ids for handler_ids in self._by_session.values()
+            )
+            assert found_in_session, (
+                f"Handler {handler_id} in _handler_id_to_topic but not in any by_session"
+            )
+
+    async def clear(self) -> None:
+        """
+        Purge every handler and every session mapping.
+        """
+        async with self._lock:
+            self._by_id.clear()
+            self._by_topic.clear()
+            self._by_session.clear()
+            self._handler_id_to_topic.clear()
+
+            if __debug__:
+                self._assert_consistency()
