@@ -79,6 +79,9 @@ class QiConfigManager(BaseSettings):
     # Reply timeout
     reply_timeout: float = Field(default=5.0)
 
+    # Pending requests per session
+    max_pending_requests_per_session: int = Field(default=100)
+
     @field_validator("addon_paths", mode="before")
     @classmethod
     def _parse_addon_paths(cls, v: str | list[str]) -> list[str]:
