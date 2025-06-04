@@ -43,39 +43,19 @@ A bundle can be assigned to a project,
 The application will present itself as a system tray icon with a menu, from where the user will be able to access the application UIs and functions.
 The application will also extend ftrack interface by registering actions in ftrack UI.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 The application is set up as:
 - a python fastapi webserver (served with uvicorn locally)
 - a systray icon that displays a menu.
 - several web browser windows displaying the UIs.
 
-The fastapi server will serve uis and listen to websocket messages and reply back.
-Any dcc application we use then will listen to those messages and process any code associated with the message.
+The fastapi server will serve uis from static folders (or by proxying dev servers in jdev mode) and listen to websocket messages.
+The websocket will be handled by a central hub/bus that will dispatch and route messages to the relevant service/addon.
+Any dcc application we use then will listen to those messages and process any code associated with the message with the associated handler registered by topic on the bus.
 The messages will be sent one to one or broadcasted with user info, process info (the dcc window, usually an id that gets created on open) and relevant data needed for the message to be correctly handled. This way we can have different dcc sessions and send commands only in the correct session even if we have more webviews open.
 All the message sending will be performed by user interaction on html+js. The correct page will be served by fastapi based on request.
 All data and information about projects and versions is stored in ftrack, which will also provide authentication, permissions and data to the web views through its api.
 
-The main application has its own configuration, which can be read from environment or from a config file in the %userdata%/Qi/main_config folder
+The main application has its own configuration, which can be read from environment or from a config file in the %userdata%/Qi/config folder (or from Qi/config in dev mode)
 The main application will also have an in memory message queue to store broadcasted messages.
 
 
@@ -85,9 +65,9 @@ The application will install all versions of addons locally, and just select the
 
 the flow of the application is as follows:
 1. the main application gets launched.
-2. it scans in the userdata directory for the "Qi" folder and retrieves the main app configuration.
+2. it scans in the userdata directory for the "Qi" folder and retrieves the main app configuration. (or the main Qi/ dir in dev mode)
 3. looking at the configuration, it finds the shared location where the addons are kept. this could be a git repo or a shared directory on the network.
-4. it downloads any missing addon based on the current production bundle in the config. The addons will be stored in the %userdata%/Qi/addons folder for local access.
+4. it downloads any missing addon based on the current production bundle in the config. The addons will be stored in the %userdata%/Qi/addons folder for local access (or in Qi/addons in dev mode). the searchable path can also be a list, so addons can be stored anywhere reachable in the network or in the local client.
 5. register all production tagged addons.
 6. any addon that gets registered will load its configuration in a configuration manager
 7. The addons will then initialize
@@ -96,5 +76,4 @@ the flow of the application is as follows:
 10. the main application will run hooks (which were already extended by addons upon init)
 11. the main application will broadcast a hello / ready state message
 
-I want to design a system to share configuration without relying on a central webserver.
-This can be achieved using a peer to peer strategy
+Settings will need to be stored, preferably without a central server (using a peer to peer strategy)

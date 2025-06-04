@@ -192,7 +192,7 @@ class QiConnectionManager:
         Lock-free: may be stale if sessions change simultaneously.
 
         Args:
-            logical_id: parent’s logical ID
+            logical_id: parent's logical ID
 
         Returns:
             A set of child logical IDs (possibly empty).
