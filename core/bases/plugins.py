@@ -368,7 +368,7 @@ class PluginBase(ABC, metaclass=PluginMeta):
       - `async def process(self, message: QiMessage) -> Any:`
 
     Provides:
-      - Automatic settings model (`self.settings`) built from class‐level descriptors.
+      - Automatic settings model (`self.settings`) built from class-level descriptors.
       - `register(...)` and `unregister()` hooks to connect into a central MessageBus.
       - A `_process_wrapper(...)` that dispatches and returns replies when needed.
     """
@@ -485,7 +485,7 @@ class ExamplePlugin(PluginBase):
     foo: str = SettingField(default="hello", label="Greeting")
     bar: int = SettingField(default=10, label="Count", visible_if=("foo", "hello"))
 
-    # Multi‐select
+    # Multi-select
     colors: list[str] = MultiSelectField(
         choices=["red", "green", "blue"],
         default=["red"],

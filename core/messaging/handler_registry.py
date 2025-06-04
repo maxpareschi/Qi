@@ -12,16 +12,16 @@ log = get_logger(__name__)
 
 class QiHandlerRegistry:
     """
-    Async‐safe registry of handlers by topic and session_id.
+    Async-safe registry of handlers by topic and session_id.
 
     ● Strong references to QiHandler objects
     ● One handler_id per (function, topic, session) triplet
-    ● Multi‐session support (the same function can be registered under multiple sessions)
+    ● Multi-session support (the same function can be registered under multiple sessions)
     ● Removal APIs:
         - drop_handler(handler_id)
         - drop_session(session_id)
     ● Lookup:
-        - get_handlers(topic, session_id) returns handlers in "two‐tier" order
+        - get_handlers(topic, session_id) returns handlers in "two-tier" order
           (exact session_id first, then HUB_ID handlers)
     """
 

@@ -66,7 +66,7 @@ class QiHub:
         Unregisters from the bus.
 
         Args:
-            session_id: the low‐level session ID to tear down
+            session_id: the low-level session ID to tear down
         """
         await self._bus.unregister(session_id=session_id)
         # Fire any "unregister" hooks
@@ -126,7 +126,7 @@ class QiHub:
 
     async def publish(self, *, message: QiMessage) -> None:
         """
-        Fire‐and‐forget publish of a QiMessage (EVENT or REPLY).
+        Fire-and-forget publish of a QiMessage (EVENT or REPLY).
 
         Args:
             message: QiMessage object
@@ -185,5 +185,5 @@ class QiHub:
         return getattr(self._bus, name)
 
 
-# Instantiate a single module‐level QiHub for convenience:
+# Instantiate a single module-level QiHub for convenience:
 qi_hub: Final[QiHub] = QiHub()

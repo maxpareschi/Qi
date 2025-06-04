@@ -13,18 +13,18 @@ log = get_logger(__name__)
 
 class QiConnectionManager:
     """
-    Async‐safe registry of active WebSocket connections (FastAPI flavour).
+    Async-safe registry of active WebSocket connections (FastAPI flavour).
 
     All writes (register/unregister) are serialized under a single asyncio.Lock.
     Getters that need to “fan out” can take a bulk snapshot under the same lock,
-    then send messages lock‐free.
+    then send messages lock-free.
 
     Task code **must** call `unregister(session_id=...)` when a client disconnects;
     the manager never polls WebSocket.application_state directly.
 
     Each QiSession has:
-      - `id`:              low‐level unique ID (UUID) for this WebSocket connection
-      - `logical_id`:      developer‐provided key (e.g. “nuke-1234”) used for routing
+      - `id`:              low-level unique ID (UUID) for this WebSocket connection
+      - `logical_id`:      developer-provided key (e.g. “nuke-1234”) used for routing
       - `parent_logical_id`: optional logical_id of a parent session
       - `tags`:            metadata list (unused by this manager directly)
     """
@@ -47,7 +47,7 @@ class QiConnectionManager:
 
     async def register(self, *, socket: WebSocket, session: QiSession) -> None:
         """
-        Register a new session‐socket pair.
+        Register a new session-socket pair.
 
         If another session already exists with the same logical_id, that old
         session (and its descendants) are unregistered first.
@@ -75,7 +75,7 @@ class QiConnectionManager:
 
     async def unregister(self, *, session_id: str) -> None:
         """
-        Unregister a session (identified by its low‐level session_id).
+        Unregister a session (identified by its low-level session_id).
         Also unregisters any child sessions (recursively).
 
         Args:
@@ -113,12 +113,12 @@ class QiConnectionManager:
                         stack.append(child_session_id)
 
             if current_socket:
-                # Schedule a “best‐effort” close outside the lock
+                # Schedule a “best-effort” close outside the lock
                 asyncio.create_task(self._safe_close(current_socket))
 
     async def _safe_close(self, socket: WebSocket) -> None:
         """
-        Best‐effort WebSocket close; swallow any exceptions.
+        Best-effort WebSocket close; swallow any exceptions.
 
         Args:
             socket: the WebSocket to close
@@ -132,7 +132,7 @@ class QiConnectionManager:
 
     async def snapshot_sockets(self) -> dict[str, WebSocket]:
         """
-        Take a point‐in‐time snapshot of {session_id → WebSocket} under one lock.
+        Take a point-in-time snapshot of {session_id → WebSocket} under one lock.
         Callers can then iterate or filter without acquiring the lock again.
 
         Returns:
@@ -158,15 +158,15 @@ class QiConnectionManager:
                     result[session_id] = socket
             return result
 
-    # —————— LOCK‐FREE “TRY” GETTERS ——————
+    # —————— LOCK-FREE “TRY” GETTERS ——————
 
     def try_get_socket(self, *, session_id: str) -> WebSocket | None:
         """
-        Lock‐free attempt to fetch a WebSocket by session_id.
+        Lock-free attempt to fetch a WebSocket by session_id.
         May return None if the session was just unregistered.
 
         Args:
-            session_id: the unique low‐level session ID
+            session_id: the unique low-level session ID
 
         Returns:
             The WebSocket if still registered, else None.
@@ -175,11 +175,11 @@ class QiConnectionManager:
 
     def try_get_session(self, *, session_id: str) -> QiSession | None:
         """
-        Lock‐free attempt to fetch QiSession by session_id.
+        Lock-free attempt to fetch QiSession by session_id.
         May return None if the session was just unregistered.
 
         Args:
-            session_id: the unique low‐level session ID
+            session_id: the unique low-level session ID
 
         Returns:
             The QiSession object if still registered, else None.
@@ -189,7 +189,7 @@ class QiConnectionManager:
     def get_children_logicals(self, *, logical_id: str) -> set[str]:
         """
         Return a **copy** of the set of child logical_ids of the given logical_id.
-        Lock‐free: may be stale if sessions change simultaneously.
+        Lock-free: may be stale if sessions change simultaneously.
 
         Args:
             logical_id: parent’s logical ID

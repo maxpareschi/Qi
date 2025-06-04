@@ -23,8 +23,8 @@ class QiMessageBus:
 
     ● Maintains a QiConnectionManager to track live sockets/sessions
     ● Maintains a QiHandlerRegistry to track topic → handler functions per session
-    ● Tracks in‐flight REQUEST futures, so that a handler's return value can be
-      auto‐wrapped as a REPLY back to the original requester.
+    ● Tracks in-flight REQUEST futures, so that a handler's return value can be
+      auto-wrapped as a REPLY back to the original requester.
     """
 
     def __init__(self) -> None:
@@ -63,9 +63,9 @@ class QiMessageBus:
         3) Unregisters the session (and its children) from ConnectionManager
 
         Args:
-            session_id: the low‐level ID that was used in QiSession.id
+            session_id: the low-level ID that was used in QiSession.id
         """
-        # 1) Cancel in‐flight request futures for this session
+        # 1) Cancel in-flight request futures for this session
         async with self._lock:
             pending_ids = self._session_to_pending.pop(session_id, set())
             for message_id in pending_ids:
@@ -98,7 +98,7 @@ class QiMessageBus:
         """
 
         def decorator(function: Any) -> Any:
-            # Schedule asynchronous registration (fire‐and‐forget)
+            # Schedule asynchronous registration (fire-and-forget)
             asyncio.create_task(
                 self._handler_registry.register(
                     handler_fn=function, topic=topic, session_id=session_id
@@ -112,7 +112,7 @@ class QiMessageBus:
 
     async def publish(self, *, message: QiMessage) -> None:
         """
-        Fire‐and‐forget an EVENT or REPLY.
+        Fire-and-forget an EVENT or REPLY.
         If message.type == REPLY and message.reply_to is set, attempt to resolve
         the matching future immediately and do NOT fan out to handlers.
 
@@ -151,7 +151,7 @@ class QiMessageBus:
         session_id: str = HUB_ID,
     ) -> Any:
         """
-        Send a REQUEST‐type QiMessage, await exactly one REPLY, then return its payload.
+        Send a REQUEST-type QiMessage, await exactly one REPLY, then return its payload.
 
         Args:
             topic:             the topic to which handlers are subscribed
@@ -164,7 +164,7 @@ class QiMessageBus:
             session_id:        this session's logical ID
 
         Returns:
-            The payload returned by the first handler that produces a non‐None result.
+            The payload returned by the first handler that produces a non-None result.
 
         Raises:
             asyncio.TimeoutError   if no REPLY arrives within <timeout>
@@ -202,7 +202,7 @@ class QiMessageBus:
             self._pending_request_futures[message_id] = reply_future
             pending_set.add(message_id)
 
-        # 3) Publish the REQUEST (fire‐and‐forget)
+        # 3) Publish the REQUEST (fire-and-forget)
         await self.publish(message=message)
 
         # 4) Await the reply or timeout
@@ -221,7 +221,7 @@ class QiMessageBus:
         """
         Core logic for:
           • EVENT messages → simply fan out to matching sockets
-          • REQUEST messages → invoke handlers; if any returns non‐None, auto‐send REPLY
+          • REQUEST messages → invoke handlers; if any returns non-None, auto-send REPLY
           • REPLY messages (already handled in publish)
 
         Args:
@@ -232,12 +232,12 @@ class QiMessageBus:
             topic=message.topic, session_id=message.sender.logical_id
         )
 
-        # 2a) If no handlers found, just fan‐out the original message
+        # 2a) If no handlers found, just fan-out the original message
         if not handler_functions:
             await self._fan_out(message=message)
             return
 
-        # 2b) If this is a REQUEST, run handlers in order, take the first non‐None
+        # 2b) If this is a REQUEST, run handlers in order, take the first non-None
         if message.type is QiMessageType.REQUEST:
             reply_payload: Any = None
             for function in handler_functions:
@@ -285,7 +285,7 @@ class QiMessageBus:
         Serialize `message` to JSON once, then send to all matching WebSockets.
 
         Lock usage:
-          • If message.target is non‐empty, snapshot only those sessions under lock
+          • If message.target is non-empty, snapshot only those sessions under lock
           • If bubble=True, snapshot parent only
           • Otherwise, snapshot all sockets under lock
 
@@ -323,7 +323,7 @@ class QiMessageBus:
     async def _safe_send(self, *, socket: WebSocket, raw_message: str) -> None:
         """
         Attempt to send `raw_message` (string) on the WebSocket.
-        Any exception (e.g. disconnected) is logged but not re‐raised.
+        Any exception (e.g. disconnected) is logged but not re-raised.
 
         Args:
             socket:      the WebSocket to send to
