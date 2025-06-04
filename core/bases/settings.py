@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import copy
+import json
+import sys
 import threading
-from typing import Any, Union
+from typing import Any
 
 
 class QiSetting:
@@ -24,14 +27,16 @@ class QiSetting:
       - '_key_in_parent': the name of this setting under its parent node
       - '_schema_node': if someone does 'some_setting.foo = …', we'll create a hidden QiSettingsNode
                         to hold those nested definitions. (In practice, most nesting happens under QiSettingsNode.)
+      - '_lock': a threading.RLock to guard _schema_node creation/access
     """
 
     default: Any
     label: str | None
     extra: dict[str, Any]
-    _parent_node: "QiSettingsNode" | None
+    _parent_node: QiSettingsNode | None
     _key_in_parent: str | None
-    _schema_node: "QiSettingsNode" | None
+    _schema_node: QiSettingsNode | None
+    _lock: threading.RLock
 
     __slots__ = (
         "default",
@@ -40,6 +45,7 @@ class QiSetting:
         "_parent_node",
         "_key_in_parent",
         "_schema_node",
+        "_lock",
     )
 
     def __init__(
@@ -58,6 +64,8 @@ class QiSetting:
         object.__setattr__(self, "_parent_node", None)
         object.__setattr__(self, "_key_in_parent", None)
         object.__setattr__(self, "_schema_node", None)
+        # Lock for schema-node creation/access
+        object.__setattr__(self, "_lock", threading.RLock())
 
     def __repr__(self) -> str:
         return (
@@ -65,10 +73,6 @@ class QiSetting:
             f"label={self.label!r}, extra={self.extra!r})"
         )
 
-    # ─── I M P O R T A N T:  A T T A C H M E N T   W A R N I N G ───────────────
-    #
-    # Until this QiSetting has been inserted into a QiSettingsNode,
-    # _parent_node is None; we must refuse any __getattr__, __setattr__, __enter__.
     def _ensure_attached(self) -> None:
         """
         Raise if this QiSetting is not yet inserted under a QiSettingsNode.
@@ -79,22 +83,31 @@ class QiSetting:
                 "Assign it under a node before using nested/context features."
             )
 
+    @property
+    def is_map_of_objects(self) -> bool:
+        """
+        True if this leaf's default is a dict AND it has a nested _schema_node.
+        In that case, we interpret its "schema" as a template for ALL child-values.
+        """
+        return isinstance(self.default, dict) and (self._schema_node is not None)
+
     def __getattr__(self, item: str) -> Any:
         """
         Route unknown attribute lookups into a hidden sub-schema node.
         (Only valid after attachment.)
         """
         self._ensure_attached()
-        if self._schema_node is None:
-            # Create a hidden QiSettingsNode under the same defaults root
-            defaults_root = self._parent_node._defaults_root
-            hidden = QiSettingsNode(
-                _parent=self._parent_node,
-                _key_in_parent=self._key_in_parent,
-                _defaults_root=defaults_root,
-            )
-            object.__setattr__(self, "_schema_node", hidden)
-        return getattr(self._schema_node, item)
+        with self._lock:
+            if self._schema_node is None:
+                # Create a hidden QiSettingsNode under the same defaults root
+                defaults_root = self._parent_node._defaults_root
+                hidden = QiSettingsNode(
+                    _parent=self._parent_node,
+                    _key_in_parent=self._key_in_parent,
+                    _defaults_root=defaults_root,
+                )
+                object.__setattr__(self, "_schema_node", hidden)
+            return getattr(self._schema_node, item)
 
     def __setattr__(self, item: str, value: Any) -> None:
         """
@@ -105,36 +118,40 @@ class QiSetting:
             object.__setattr__(self, item, value)
             return
 
-        # Otherwise, it's a nested assignment -> delegate to _schema_node
         self._ensure_attached()
-        if self._schema_node is None:
-            defaults_root = self._parent_node._defaults_root
-            hidden = QiSettingsNode(
-                _parent=self._parent_node,
-                _key_in_parent=self._key_in_parent,
-                _defaults_root=defaults_root,
-            )
-            object.__setattr__(self, "_schema_node", hidden)
+        with self._lock:
+            if self._schema_node is None:
+                defaults_root = self._parent_node._defaults_root
+                hidden = QiSettingsNode(
+                    _parent=self._parent_node,
+                    _key_in_parent=self._key_in_parent,
+                    _defaults_root=defaults_root,
+                )
+                object.__setattr__(self, "_schema_node", hidden)
 
-        setattr(self._schema_node, item, value)
+            setattr(self._schema_node, item, value)
+            # Any nested assignment can change the schema, so invalidate caches upward
+            self._parent_node._invalidate_caches_upwards()
 
     def __enter__(self) -> QiSettingsNode:
         """
         Context-manager support: 'with some_leaf as node:' returns the hidden schema node.
         """
         self._ensure_attached()
-        if self._schema_node is None:
-            defaults_root = self._parent_node._defaults_root
-            hidden = QiSettingsNode(
-                _parent=self._parent_node,
-                _key_in_parent=self._key_in_parent,
-                _defaults_root=defaults_root,
-            )
-            object.__setattr__(self, "_schema_node", hidden)
-        return self._schema_node
+        with self._lock:
+            if self._schema_node is None:
+                defaults_root = self._parent_node._defaults_root
+                hidden = QiSettingsNode(
+                    _parent=self._parent_node,
+                    _key_in_parent=self._key_in_parent,
+                    _defaults_root=defaults_root,
+                )
+                object.__setattr__(self, "_schema_node", hidden)
+            # Entering nested schema implies potential schema change
+            self._parent_node._invalidate_caches_upwards()
+            return self._schema_node
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        # No special teardown
         return None
 
     def set_defaults(self, entry: Any) -> None:
@@ -144,27 +161,44 @@ class QiSetting:
             defaults_root._children_defaults["advanced"]["profiles"] = entry
         """
         self._ensure_attached()
-        parent = self._parent_node
 
-        # Walk upward from _parent_node (QiSettingsNode) via _key_in_parent to build full leaf path:
-        path: list[str] = []
-        node_schema = parent
-        while node_schema is not None and node_schema._key_in_parent is not None:
-            path.append(node_schema._key_in_parent)
-            node_schema = node_schema._parent
-        path.reverse()
-        path.append(self._key_in_parent)  # leaf's own key at the end
+        # Validate type consistency
+        if isinstance(self.default, dict) and not isinstance(entry, dict):
+            raise TypeError(
+                f"Expected dict override for '{self._key_in_parent}', got {type(entry).__name__}"
+            )
+        if isinstance(self.default, list) and not isinstance(entry, list):
+            raise TypeError(
+                f"Expected list override for '{self._key_in_parent}', got {type(entry).__name__}"
+            )
 
-        # Now traverse the root defaults tree to set the override
-        dnode = parent._defaults_root
-        for segment in path[:-1]:
-            if segment not in dnode._children_defaults or not isinstance(
-                dnode._children_defaults.get(segment), dict
-            ):
-                dnode._children_defaults[segment] = {}
-            dnode = dnode._children_defaults[segment]
-        last_key = path[-1]
-        dnode._children_defaults[last_key] = entry
+        # Acquire the defaults-root lock to avoid concurrent modifications
+        root_lock = self._parent_node._defaults_root._lock
+        with root_lock:
+            parent = self._parent_node
+
+            # Build full leaf path
+            path: list[str] = []
+            node_schema = parent
+            while node_schema is not None and node_schema._key_in_parent is not None:
+                path.append(node_schema._key_in_parent)
+                node_schema = node_schema._parent
+            path.reverse()
+            path.append(self._key_in_parent)
+
+            # Traverse and modify the defaults tree
+            dnode = parent._defaults_root
+            for segment in path[:-1]:
+                if segment not in dnode._children_defaults or not isinstance(
+                    dnode._children_defaults.get(segment), dict
+                ):
+                    dnode._children_defaults[segment] = {}
+                dnode = dnode._children_defaults[segment]
+            last_key = path[-1]
+            dnode._children_defaults[last_key] = entry
+
+        # Invalidate caches up the tree
+        self._parent_node._invalidate_caches_upwards()
 
 
 class QiSettingsNode:
@@ -180,6 +214,8 @@ class QiSettingsNode:
       - '_key_in_parent': the key under which this node lives in its parent
       - '_defaults_root': reference to the single "root of roots" defaults-tree
       - '_lock': threading.RLock for thread-safe mutations
+      - '_schema_cache': cached result of get_schema() or None
+      - '_values_cache': cached result of get_values() or None
     """
 
     _children_schema: dict[str, QiSettingsNode | QiSetting]
@@ -188,6 +224,8 @@ class QiSettingsNode:
     _key_in_parent: str | None
     _defaults_root: QiSettingsNode
     _lock: threading.RLock
+    _schema_cache: dict[str, Any] | None
+    _values_cache: Any
 
     __slots__ = (
         "_children_schema",
@@ -196,6 +234,8 @@ class QiSettingsNode:
         "_key_in_parent",
         "_defaults_root",
         "_lock",
+        "_schema_cache",
+        "_values_cache",
     )
 
     def __init__(
@@ -211,19 +251,29 @@ class QiSettingsNode:
         object.__setattr__(self, "_parent", _parent)
         object.__setattr__(self, "_key_in_parent", _key_in_parent)
 
-        # If no '_defaults_root' provided, this node is its own root:
         if _defaults_root is None:
             object.__setattr__(self, "_defaults_root", self)
         else:
             object.__setattr__(self, "_defaults_root", _defaults_root)
 
-        # Thread-safe lock for schema/defaults mutations
         object.__setattr__(self, "_lock", threading.RLock())
+        object.__setattr__(self, "_schema_cache", None)
+        object.__setattr__(self, "_values_cache", None)
 
     def __repr__(self) -> str:
         if self._parent is None:
             return "<QiSettingsNode ROOT>"
         return f"<QiSettingsNode .{self._key_in_parent!r}>"
+
+    def _invalidate_caches_upwards(self) -> None:
+        """
+        Clear this node's caches, then propagate to parent so all ancestors are invalidated.
+        """
+        with self._lock:
+            object.__setattr__(self, "_schema_cache", None)
+            object.__setattr__(self, "_values_cache", None)
+        if self._parent is not None:
+            self._parent._invalidate_caches_upwards()
 
     #
     # ─── Attribute Access / Creation ───────────────────────────────────────────
@@ -243,6 +293,8 @@ class QiSettingsNode:
                     _defaults_root=self._defaults_root,
                 )
                 self._children_schema[item] = child
+                # New child changes schema
+                self._invalidate_caches_upwards()
             return self._children_schema[item]
 
     def __setattr__(self, item: str, value: Any) -> None:
@@ -257,27 +309,25 @@ class QiSettingsNode:
             return
 
         with self._lock:
-            # Already-constructed sub-node?
             if isinstance(value, QiSettingsNode):
                 node: QiSettingsNode = value
                 object.__setattr__(node, "_parent", self)
                 object.__setattr__(node, "_key_in_parent", item)
                 object.__setattr__(node, "_defaults_root", self._defaults_root)
                 self._children_schema[item] = node
-
             elif isinstance(value, QiSetting):
                 leaf: QiSetting = value
                 object.__setattr__(leaf, "_parent_node", self)
                 object.__setattr__(leaf, "_key_in_parent", item)
-                # (leaf._schema_node remains None until any nested assignment)
                 self._children_schema[item] = leaf
-
             else:
-                # Raw Python value -> auto-wrap into QiSetting
                 leaf = QiSetting(default=value)
                 object.__setattr__(leaf, "_parent_node", self)
                 object.__setattr__(leaf, "_key_in_parent", item)
                 self._children_schema[item] = leaf
+
+            # Any assignment changes the schema
+            self._invalidate_caches_upwards()
 
     def __enter__(self) -> QiSettingsNode:
         """
@@ -291,7 +341,7 @@ class QiSettingsNode:
     #
     # ─── set_defaults ──────────────────────────────────────────────────────────
     #
-    def set_defaults(self, data: Union[dict[str, Any], list[Any], Any]) -> None:
+    def set_defaults(self, data: dict[str, Any] | list[Any] | Any) -> None:
         """
         Bulk-set defaults at this node. If 'data' is a dict, merge its keys into
         '_children_defaults'; if it's anything else (e.g. list or primitive), replace
@@ -304,6 +354,9 @@ class QiSettingsNode:
             else:
                 object.__setattr__(self, "_children_defaults", data)
 
+            # Changing defaults invalidates cached values
+            self._invalidate_caches_upwards()
+
     #
     # ─── Serialization (Schema vs. Values) ───────────────────────────────────
     #
@@ -312,61 +365,203 @@ class QiSettingsNode:
         Recursively walk '_children_schema' to produce a pure-dict "schema":
           - QiSetting -> { "type": <typename>, "label": <label>, "extra": <extra>, ... }
           - QiSettingsNode -> nested dict
+
+        Returns a deep copy to avoid callers mutating internal state.
+        Uses a simple cache to avoid recomputing if nothing has changed.
         """
-        out: dict[str, Any] = {}
         with self._lock:
+            if self._schema_cache is not None:
+                return copy.deepcopy(self._schema_cache)
+
+            out: dict[str, Any] = {}
             for key, node in self._children_schema.items():
                 if isinstance(node, QiSetting):
-                    # Leaf: show type, label, extra metadata
-                    out[key] = {
+                    entry: dict[str, Any] = {
                         "type": type(node.default).__name__,
                         "label": node.label or key.capitalize(),
-                        "extra": node.extra.copy(),
+                        "extra": copy.deepcopy(node.extra),
                     }
-                    # If the QiSetting has a hidden sub-schema under '_schema_node', include it
                     if node._schema_node is not None:
-                        out[key]["schema"] = node._schema_node.get_schema()
+                        entry["schema"] = node._schema_node.get_schema()
+                    out[key] = entry
                 else:
-                    # Sub-node: recurse
                     out[key] = node.get_schema()
-        return out
+
+            object.__setattr__(self, "_schema_cache", copy.deepcopy(out))
+            return out
 
     def get_values(self) -> Any:
         """
         Recursively produce a "values-only" structure from '_children_defaults',
         falling back on each QiSetting.default when no override is present.
+
+        Returns a deep copy to avoid callers mutating internal state.
+        Uses a simple cache to avoid recomputing if nothing has changed.
         """
-
-        def _recurse_schema(node: QiSettingsNode, defaults: Any) -> Any:
-            # If defaults at this level is not a dict, it's a leaf override (list or primitive)
-            if not isinstance(defaults, dict):
-                return defaults
-
-            result: dict[str, Any] = {}
-            for key, schema_node in node._children_schema.items():
-                if key in defaults:
-                    override = defaults[key]
-                    if isinstance(schema_node, QiSetting):
-                        result[key] = override
-                    else:
-                        result[key] = _recurse_schema(schema_node, override)
-                else:
-                    # No override: use schema default
-                    if isinstance(schema_node, QiSetting):
-                        result[key] = schema_node.default
-                    else:
-                        result[key] = _recurse_schema(schema_node, {})
-                # If QiSetting has its own '_schema_node', merge nested children
-                if isinstance(schema_node, QiSetting) and schema_node._schema_node:
-                    nested = schema_node._schema_node.get_values()
-                    if isinstance(result[key], dict) and isinstance(nested, dict):
-                        result[key].update(nested)
-                    else:
-                        result[key] = nested
-            return result
-
         with self._lock:
-            return _recurse_schema(self, self._children_defaults)
+            if self._values_cache is not None:
+                return copy.deepcopy(self._values_cache)
+
+            def _recurse_schema(
+                node: QiSettingsNode,
+                defaults: Any,
+                depth: int = 0,
+                seen: set[int] | None = None,
+            ) -> Any:
+                # Prevent infinite recursion with depth limit and cycle detection
+                if depth > sys.getrecursionlimit() - 10:
+                    raise RecursionError("Maximum schema depth exceeded")
+
+                if seen is None:
+                    seen = set()
+                node_id = id(node)
+                if node_id in seen:
+                    raise RecursionError("Circular reference detected in schema")
+                seen.add(node_id)
+
+                if not isinstance(defaults, dict):
+                    return defaults
+
+                result: dict[str, Any] = {}
+                for key, schema_node in node._children_schema.items():
+                    if key in defaults:
+                        override = defaults[key]
+                        if isinstance(schema_node, QiSetting):
+                            result[key] = override
+                        else:
+                            result[key] = _recurse_schema(
+                                schema_node, override, depth + 1, seen
+                            )
+                    else:
+                        if isinstance(schema_node, QiSetting):
+                            result[key] = schema_node.default
+                        else:
+                            result[key] = _recurse_schema(
+                                schema_node, {}, depth + 1, seen
+                            )
+
+                        if (
+                            isinstance(schema_node, QiSetting)
+                            and schema_node._schema_node
+                        ):
+                            nested = schema_node._schema_node.get_values()
+                            if isinstance(result[key], dict) and isinstance(
+                                nested, dict
+                            ):
+                                result[key].update(nested)
+                            else:
+                                result[key] = nested
+
+                seen.remove(node_id)
+                return result
+
+            computed = _recurse_schema(self, self._children_defaults)
+            object.__setattr__(self, "_values_cache", copy.deepcopy(computed))
+            return computed
+
+    #
+    # ─── Serialization to/from JSON ──────────────────────────────────────────
+    #
+    def to_json(self) -> str:
+        """
+        Serialize both schema and current values into JSON.
+        Returns a JSON string with two top-level keys: 'schema' and 'values'.
+        """
+        try:
+            payload = {
+                "schema": self.get_schema(),
+                "values": self.get_values(),
+            }
+            return json.dumps(payload, indent=2)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Unable to serialize to JSON: {e}")
+
+    @classmethod
+    def from_json(cls, json_str: str) -> QiSettingsNode:
+        """
+        Deserialize JSON (with 'schema' and 'values') into a new QiSettingsNode tree.
+        This reconstructs defaults and schema exactly as provided.
+        """
+        data = json.loads(json_str)
+        node = cls()  # new root
+
+        # Load schema
+        def _build_schema(current_node: QiSettingsNode, schema_dict: dict[str, Any]):
+            for key, entry in schema_dict.items():
+                label = entry.get("label")
+                extra = entry.get("extra", {})
+                setting = QiSetting(default=None, label=label, extra=extra)
+                object.__setattr__(setting, "_parent_node", current_node)
+                object.__setattr__(setting, "_key_in_parent", key)
+                current_node._children_schema[key] = setting
+
+                if "schema" in entry:
+                    subtree = QiSettingsNode(
+                        _parent=current_node,
+                        _key_in_parent=key,
+                        _defaults_root=node,
+                    )
+                    object.__setattr__(setting, "_schema_node", subtree)
+                    _build_schema(subtree, entry["schema"])
+
+        _build_schema(node, data.get("schema", {}))
+
+        # Load values (overrides)
+        def _apply_values(current_node: QiSettingsNode, values_dict: dict[str, Any]):
+            for key, val in values_dict.items():
+                if key in current_node._children_schema:
+                    schema_node = current_node._children_schema[key]
+                    if isinstance(schema_node, QiSetting) and schema_node._schema_node:
+                        if not isinstance(val, dict):
+                            raise TypeError(
+                                f"Expected dict for '{key}', got {type(val).__name__}"
+                            )
+                        schema_node.set_defaults(val)
+                    elif isinstance(schema_node, QiSettingsNode) and isinstance(
+                        val, dict
+                    ):
+                        _apply_values(schema_node, val)
+                    elif isinstance(schema_node, QiSetting):
+                        schema_node.set_defaults(val)
+                    else:
+                        # Skip mismatches silently or raise
+                        raise TypeError(f"Cannot apply value for '{key}'")
+
+        if "values" in data:
+            _apply_values(node, data["values"])
+
+        return node
+
+    #
+    # ─── Explicit Cleanup to Break Circular References ─────────────────────────
+    #
+    def dispose(self) -> None:
+        """
+        Recursively break references to help GC clean up cycles.
+        After calling dispose(), this node and its subtrees should not be used.
+        """
+        with self._lock:
+            for key, child in list(self._children_schema.items()):
+                if isinstance(child, QiSettingsNode):
+                    child.dispose()
+                elif isinstance(child, QiSetting):
+                    with child._lock:
+                        if child._schema_node is not None:
+                            child._schema_node.dispose()
+                            object.__setattr__(child, "_schema_node", None)
+                    object.__setattr__(child, "_parent_node", None)
+                    object.__setattr__(child, "_key_in_parent", None)
+                # Remove reference from this node
+                self._children_schema.pop(key, None)
+
+            # Break parent link
+            object.__setattr__(self, "_parent", None)
+            object.__setattr__(self, "_defaults_root", None)
+            object.__setattr__(self, "_children_defaults", {})
+
+            # Clear caches
+            object.__setattr__(self, "_schema_cache", None)
+            object.__setattr__(self, "_values_cache", None)
 
     #
     # ─── Convenience Item-Access ───────────────────────────────────────────────
