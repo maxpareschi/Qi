@@ -1,17 +1,12 @@
 # test_plugin.py
 
 
-from core.bases.settings import QiGroup, QiProp, define_settings
+from core.bases.settings import QiGroup, QiProp, QiSettings
 
 
-@define_settings(root_name="settings")
 class MyPlugin:
     # Create the root QiGroup (no fields yet)
-    settings = QiGroup(
-        title="Root Settings", description="All plugin settings live here"
-    )
-
-    # Inside the class body, use "with settings as s:" to assign attributes
+    settings = QiSettings()
     with settings as s:
         # A simple boolean leaf (no metadata)
         s.enabled = True
@@ -72,8 +67,8 @@ class MyPlugin:
     def process(self):
         import json
 
-        print(json.dumps(self.settings_dict(), indent=2))
-        print(json.dumps(self.settings_schema(), indent=2))
+        print(json.dumps(self.settings.get_values(), indent=2))
+        print(json.dumps(self.settings.get_schema(), indent=2))
 
 
 if __name__ == "__main__":

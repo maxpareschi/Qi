@@ -3,471 +3,386 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Type
+from threading import RLock
+from typing import Any
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 
+# ────────────────────────────────────────────────────────────
+#  Schema simplifier
+# ────────────────────────────────────────────────────────────
+def _simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Collapse structurally identical $defs entries so that the final JSON schema
+    is smaller and diff-friendly.
+
+    Two definitions are considered identical when their ``properties`` sections
+    are equal once the presentational keys ``default``, ``title`` and
+    ``description`` are stripped.
+    """
+    defs = schema.get("$defs")
+    if not isinstance(defs, dict):
+        return schema
+
+    # Bucket definitions by structural signature
+    buckets: dict[str, list[str]] = {}
+    for name, sub in defs.items():
+        stripped = {
+            p: {
+                k: v
+                for k, v in d.items()
+                if k not in {"default", "title", "description"}
+            }
+            for p, d in sub.get("properties", {}).items()
+        }
+        sig = repr(sorted(stripped.items()))
+        buckets.setdefault(sig, []).append(name)
+
+    # Map non-canonical names → canonical name
+    mapping: dict[str, str] = {}
+    for names in buckets.values():
+        canon = min(names, key=lambda n: (len(n), n))
+        for n in names:
+            if n != canon:
+                mapping[f"#/$defs/{n}"] = f"#/$defs/{canon}"
+
+    # Rewrite $ref links
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if (r := node.get("$ref")) in mapping:
+                node["$ref"] = mapping[r]
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    result = deepcopy(schema)
+    walk(result)
+
+    # Keep only canonical definitions
+    result["$defs"] = {
+        min(lst, key=len): defs[min(lst, key=len)] for lst in buckets.values()
+    }
+    return result
+
+
+# ────────────────────────────────────────────────────────────
+#  QiProp – leaf node
+# ────────────────────────────────────────────────────────────
 class QiProp:
     """
-    Wraps a default value + optional metadata (title/description/choices/etc.).
-    Internally, this generates Pydantic Field(...) arguments when building the model.
+    Leaf-level setting.
+
+    Parameters
+    ----------
+    default
+        Default Python value (scalar, list, tuple or set).
+    title, description
+        Optional short text used by UIs.
+    **kwargs
+        Any extra key–value pairs are preserved verbatim in ``_meta`` and
+        forwarded into :pyfunc:`pydantic.Field`.  Use them for UI hints such as
+        ``choices``, ``step``, ``icon``…
+
+    Notes
+    -----
+    Call :pyfunc:`set_meta` to mutate or extend metadata after creation.
     """
 
-    default: int | str | float | bool | list[int | str | float] | None
-    title: str | None
-    description: str | None
-    choices: list[Any] | None
-    multi_select: bool
-    _extra: dict[str, Any]
-
-    __slots__ = (
-        "default",
-        "title",
-        "description",
-        "choices",
-        "multi_select",
-        "_extra",
-    )
-
+    # ── construction ───────────────────────────────────────
     def __init__(
         self,
-        default: int | str | float | bool | list[int | str | float] | None = None,
+        default: int
+        | str
+        | float
+        | bool
+        | list[Any]
+        | tuple[Any]
+        | set[Any]
+        | None = None,
         *,
         title: str | None = None,
         description: str | None = None,
-        choices: list[Any] | None = None,
-        multiselect: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ):
         self.default = default
         self.title = title
         self.description = description
-        self.choices = choices
-        self.multi_select = multiselect
-        self._extra: dict[str, Any] = dict()
+        self._meta: dict[str, Any] = kwargs.copy()
 
-    def specs(self, **kwargs: Any) -> None:
+    # ── public helpers ─────────────────────────────────────
+    def set_meta(self, **kwargs: Any) -> None:
         """
-        Post-creation metadata editing. E.g.:
-        p = QiProp(3, title="Age")
-        p.specs(description="User's age", choices=[18, 21, 30])
+        Update built-in attributes and/or extend arbitrary metadata::
+
+            prop.set_meta(title="Threshold", min=0, max=1)
         """
-        for key, value in kwargs.items():
-            if key in self.__slots__:
-                setattr(self, key, value)
+        for k, v in kwargs.items():
+            if k in {"default", "title", "description"}:
+                setattr(self, k, v)
             else:
-                self._extra[key] = value
+                self._meta[k] = v
 
-    def _field_info(self, annotation: Any) -> dict[str, Any]:
-        """
-        Convert this QiProp into a dict of kwargs for Pydantic's Field():
-        E.g., {"default": self.default, "title": ..., "description": ..., "enum": [...]}.
-        """
+    # ── internal helper for Pydantic ───────────────────────
+    def _field_info(self) -> dict[str, Any]:
         info: dict[str, Any] = {"default": self.default}
         if self.title is not None:
             info["title"] = self.title
         if self.description is not None:
             info["description"] = self.description
-        if self.choices is not None:
-            info["enum"] = self.choices
-        if self.multi_select:
-            # Pass x_multi_select so it appears in model_json_schema()
-            info["x_multi_select"] = True
-        info.update(self._extra)
-
+        info.update(self._meta)
         return info
 
 
+# ────────────────────────────────────────────────────────────
+#  QiGroup – interior node
+# ────────────────────────────────────────────────────────────
 class QiGroup:
     """
-    Each QiGroup can be used inside a class body as:
+    Grouping node that can contain other groups or props.
 
-    settings = QiGroup()
-    with settings as s:
-        s.foo = 1
-        s.bar = QiProp("hello", title="Greeting")
-        s.subgroup = QiGroup(modifiable=True)
-        with s.subgroup as sg:
-            sg.x = 42
-
-    At @define_settings time, we convert the tree into a Pydantic model.  At runtime,
-    'self.settings' is a Pydantic instance with real attributes, giving dot-notation
-    and full linter support.
+    • Accepts arbitrary keyword metadata stored in ``_meta``.
+    • Before :pyfunc:`build`, attribute access mutates the schema; afterwards it
+      proxies to the live Pydantic instance with full validation.
     """
 
-    _children: dict[str, Any]
-    title: str | None
-    description: str | None
-    modifiable: bool
-    list_mode: bool
-    _defaults: dict[str, Any]
-    _parent: QiGroup | None
-    _model_cls: Type[BaseModel]
-    _model_instance: BaseModel
-
-    __slots__ = (
-        "_children",
-        "title",
-        "description",
-        "modifiable",
-        "list_mode",
-        "_defaults",
-        "_parent",
-        "_model_cls",
-        "_model_instance",
-    )
-
+    # ── construction ───────────────────────────────────────
     def __init__(
         self,
         *,
         title: str | None = None,
         description: str | None = None,
-        modifiable: bool = False,
-        list: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ):
-        object.__setattr__(self, "_children", dict())
-        object.__setattr__(self, "title", title)
-        object.__setattr__(self, "description", description)
-        object.__setattr__(self, "modifiable", modifiable)
-        object.__setattr__(self, "list_mode", list)
-        object.__setattr__(self, "_defaults", dict())
-        object.__setattr__(self, "_parent", None)
-        # _model_cls and _model_instance get set by @define_settings later
+        self.title = title
+        self.description = description
+        self._meta: dict[str, Any] = kwargs.copy()
 
-    def __getattr__(self, name: str) -> Any:
-        """
-        Forward missing-attribute lookups into self._children.
-        Enables 'with s.internal_profiles as p:' after 's.internal_profiles = QiGroup()'.
-        """
-        if name in self._children:
-            return self._children[name]
-        raise AttributeError(
-            f"{type(self).__name__!r} object has no attribute {name!r}"
-        )
+        # definition-time state
+        self._children: dict[str, QiProp | "QiGroup"] = {}
+        self._defaults: dict[str, Any] = {}
+        self._parent: QiGroup | None = None
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        """
-        Capture 's.name = value' inside the 'with'-block:
-        - QiGroup → register child group
-        - QiProp → register leaf with metadata
-        - Otherwise wrap in QiProp(default=value)
-        Stored in self._children; no direct __dict__ assignment.
-        """
-        if name in self.__slots__:
-            object.__setattr__(self, name, value)
-            return
+        # run-time state
+        self._model_cls: type[BaseModel] | None = None
+        self._model_instance: BaseModel | None = None
+        self._cached_schema: dict[str, Any] | None = None
+        self._lock = RLock()
 
-        if isinstance(value, QiGroup):
-            object.__setattr__(value, "_parent", self)
-            self._children[name] = value
-            return
-
-        if isinstance(value, QiProp):
-            self._children[name] = value
-            return
-
-        leaf = QiProp(value)
-        self._children[name] = leaf
-
-    def __deepcopy__(self, memo: dict[int, Any]) -> QiGroup:
-        """
-        Custom deepcopy: copy only the intended slots (_children, metadata, defaults)
-        without triggering __getattr__. Recursively deep-copy nested QiGroups/QiProps.
-        """
+    # ── deepcopy support for inherit() ─────────────────────
+    def __deepcopy__(self, memo: dict[int, Any]) -> "QiGroup":
         cls = type(self)
-        new_group = cls(
-            title=self.title,
-            description=self.description,
-            modifiable=self.modifiable,
-            list=self.list_mode,
+        clone = cls(
+            title=self.title, description=self.description, **deepcopy(self._meta, memo)
         )
-        object.__setattr__(new_group, "_defaults", deepcopy(self._defaults, memo))
 
-        new_children: dict[str, Any] = {}
-        for key, child in self._children.items():
-            if isinstance(child, QiGroup):
-                copied_child = child.__deepcopy__(memo)
-                object.__setattr__(copied_child, "_parent", new_group)
-                new_children[key] = copied_child
-            else:
-                new_children[key] = deepcopy(child, memo)
-        object.__setattr__(new_group, "_children", new_children)
-        object.__setattr__(new_group, "_parent", None)
-        return new_group
+        clone._defaults = deepcopy(self._defaults, memo)
+        clone._lock = RLock()  # fresh lock
+        clone._model_cls = None
+        clone._model_instance = None
+        clone._cached_schema = None
 
-    def __enter__(self) -> QiGroup:
+        for name, child in self._children.items():
+            copied = deepcopy(child, memo)
+            if isinstance(copied, QiGroup):
+                copied._parent = clone
+            clone._children[name] = copied
+
+        memo[id(self)] = clone
+        return clone
+
+    # ── context manager (definition stage) ─────────────────
+    def __enter__(self) -> "QiGroup":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        return None
+        pass
+
+    # ── attribute plumbing ─────────────────────────────────
+    def __getattr__(self, name: str) -> Any:
+        if self._model_instance is not None:
+            with self._lock:
+                return getattr(self._model_instance, name)
+
+        if name in self._children:
+            return self._children[name]
+
+        raise AttributeError(f"{type(self).__name__} has no attribute {name!r}")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        internals = {
+            "title",
+            "description",
+            "_meta",
+            "_children",
+            "_defaults",
+            "_parent",
+            "_model_cls",
+            "_model_instance",
+            "_cached_schema",
+            "_lock",
+        }
+        if name in internals or name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+
+        if self._model_instance is not None:  # run-time
+            with self._lock:
+                setattr(self._model_instance, name, value)
+            return
+
+        # definition-time
+        if isinstance(value, QiGroup):
+            value._parent = self
+            self._children[name] = value
+        elif isinstance(value, QiProp):
+            self._children[name] = value
+        else:
+            self._children[name] = QiProp(value)
+
+    # ── public helpers ─────────────────────────────────────
+    def set_meta(self, **kwargs: Any) -> None:
+        """Mutate or extend metadata on this group node."""
+        with self._lock:
+            for k, v in kwargs.items():
+                if k in {"title", "description"}:
+                    setattr(self, k, v)
+                else:
+                    self._meta[k] = v
 
     def set_defaults(self, values: dict[str, Any]) -> None:
         """
-        Store override-defaults that will be applied when building the Pydantic model.
-        Example:
-            settings.set_defaults({ "foo": 100, "nested": { "bar": "hello" } })
+        Override default values below this node **and** trigger a rebuild of
+        the root model so that subsequent reads see the change.
         """
-        object.__setattr__(self, "_defaults", deepcopy(values))
+        with self._lock:
+            self._defaults = deepcopy(values)
+            self._find_root().build()
 
-    def inherit(self) -> QiGroup:
+    def inherit(self) -> "QiGroup":
         """
-        Return a deep copy of this entire group subtree, so you can override
-        defaults independently from the original.
+        Return a **deep copy** of this subtree, detached from the original
+        parent.  Useful when you need two similar branches with diverging
+        defaults or metadata.
         """
-        return deepcopy(self)
+        with self._lock:
+            return deepcopy(self)
 
-    def specs(self, **kwargs: Any) -> None:
-        """
-        Edit metadata on this group AFTER creation.
-        Acceptable keys: title, description, modifiable, list
-        """
-        for key, value in kwargs.items():
-            match key:
-                case "title":
-                    object.__setattr__(self, "title", value)
-                case "description":
-                    object.__setattr__(self, "description", value)
-                case "modifiable":
-                    object.__setattr__(self, "modifiable", value)
-                case "list":
-                    object.__setattr__(self, "list_mode", value)
-                case _:
-                    setattr(self, key, value)
-
+    # ── defaults machinery ─────────────────────────────────
     def _apply_defaults(self) -> None:
-        """
-        Recursively apply stored _defaults into QiProp.default or nested QiGroup._defaults.
-        Clears _defaults afterward.
-        """
-        for name, override in self._defaults.items():
-            if name not in self._children:
-                continue
-            child = self._children[name]
-            if isinstance(child, QiProp):
+        for key, override in deepcopy(self._defaults).items():
+            child = self._children.get(key)
+            if isinstance(child, QiProp) and not isinstance(child, QiGroup):
                 child.default = override
-            elif isinstance(child, QiGroup) and isinstance(override, dict):
-                object.__setattr__(child, "_defaults", deepcopy(override))
+            elif isinstance(child, QiGroup):
+                child._defaults = deepcopy(override)
                 child._apply_defaults()
-        object.__setattr__(self, "_defaults", {})
-        for child in self._children.values():
-            if isinstance(child, QiGroup):
-                child._apply_defaults()
+        self._defaults = {}
+        for c in self._children.values():
+            if isinstance(c, QiGroup):
+                c._apply_defaults()
 
-    def _build_model(self, model_name: str = "RootModel") -> Type[BaseModel]:
-        """
-        Convert this QiGroup tree into a Pydantic BaseModel subclass.
-        - Apply defaults via _apply_defaults()
-        - For each QiProp, create (annotation, Field(**kwargs))
-        - For each nested QiGroup, recurse
-        Returns the new Pydantic model class.
-        """
+    # ── helpers ────────────────────────────────────────────
+    def _find_root(self) -> "QiGroup":
+        node: QiGroup = self
+        while node._parent is not None:
+            node = node._parent
+        return node
+
+    # ── model building ─────────────────────────────────────
+    def _build_model(self, name: str) -> type[BaseModel]:
         self._apply_defaults()
-        fields_def: dict[str, Any] = {}
+        fields: dict[str, tuple[Any, Any]] = {}
 
-        # Process field definitions
-        for name, child in self._children.items():
-            if isinstance(child, QiProp):
-                py_default = child.default
-                annotation = type(py_default) if py_default is not None else Any
-                if isinstance(py_default, list):
-                    if py_default:
-                        element_type = type(py_default[0])
-                        annotation = list[element_type]  # e.g. list[int] or list[str]
-                    else:
-                        annotation = list[Any]
-                field_kwargs = child._field_info(annotation)
-                fields_def[name] = (annotation, Field(**field_kwargs))
+        for nm, child in self._children.items():
+            # ---------- leaf ----------
+            if isinstance(child, QiProp) and not isinstance(child, QiGroup):
+                default = child.default
+
+                if isinstance(default, (list, tuple, set)):
+                    kinds = {type(x) for x in default}
+                    if len(kinds) > 1:
+                        raise TypeError(
+                            "list / tuple / set defaults must be homogeneous"
+                        )
+                    inner = kinds.pop() if default else Any
+                    ann: Any = list[inner]  # lists are JSON-serialisable
+                else:
+                    ann = type(default) if default is not None else Any
+
+                fields[nm] = (ann, Field(**child._field_info()))
+
+            # ---------- subgroup ----------
             else:
-                nested_model = child._build_model(
-                    model_name=name.capitalize() + "Model"
-                )
-                nested_default = nested_model(**{})
-                fields_def[name] = (nested_model, Field(default=nested_default))
+                sub_cls = child._build_model(nm.capitalize() + "Model")
 
-        # Create the model class
-        model_class = create_model(
-            model_name,
-            **fields_def,  # type: ignore[arg-type]
+                subgroup_meta = child._meta.copy()
+                if child.title is not None:
+                    subgroup_meta.setdefault("title", child.title)
+                if child.description is not None:
+                    subgroup_meta.setdefault("description", child.description)
+
+                fields[nm] = (sub_cls, Field(default_factory=sub_cls, **subgroup_meta))
+
+        return create_model(
+            name,
+            __config__=ConfigDict(validate_assignment=True),
+            **fields,  # type: ignore[arg-type]
         )
 
-        # Set model_config after model creation
-        model_class.model_config = {"validate_assignment": True}
-
-        return model_class
-
-    def model_dump(self) -> dict[str, Any]:
-        if not hasattr(self, "_model_cls"):
-            raise RuntimeError("You must call define_settings first.")
-        return self._model_cls.model_dump()
-
-    def model_json_schema(self) -> dict[str, Any]:
+    def build(self) -> None:
         """
-        After @define_settings, returns the Pydantic model's JSON-schema as a dict.
+        Build / rebuild the whole Pydantic model tree starting from the root
+        ``QiSettings``. Automatically called when the root with-block exits.
         """
-        if not hasattr(self, "_model_cls"):
-            raise RuntimeError("You must call define_settings first.")
-        return self._model_cls.model_json_schema()
+        with self._lock:
+            if not isinstance(self, QiSettings):
+                raise RuntimeError("Only QiSettings may build; call on root QiSettings")
+            cls = self._build_model(self.title or "RootModel")
+            self._model_cls = cls
+            self._model_instance = cls(**{})
+            self._cached_schema = None
 
-    def _attach_model(self, model_class: Type[BaseModel]) -> None:
-        """
-        Called by @define_settings: store the Pydantic model class and a default instance.
-        """
-        object.__setattr__(self, "_model_cls", model_class)
-        default_instance = model_class(**{})  # fill in defaults
-        object.__setattr__(self, "_model_instance", default_instance)
+    # ── public read API ────────────────────────────────────
+    def get_values(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dict of the current setting values."""
+        with self._lock:
+            if self._model_instance is None:
+                raise RuntimeError("must build() first")
+            return self._model_instance.model_dump()
+
+    def get_raw_schema(self) -> dict[str, Any]:
+        """Return the raw Pydantic JSON schema (no deduplication)."""
+        with self._lock:
+            if self._model_cls is None:
+                raise RuntimeError("must build() first")
+            return self._model_cls.model_json_schema()
+
+    def get_schema(self) -> dict[str, Any]:
+        """Return a simplified JSON schema with duplicate ``$defs`` merged."""
+        with self._lock:
+            if self._cached_schema is None:
+                self._cached_schema = _simplify_schema(self.get_raw_schema())
+            return self._cached_schema
 
 
-def define_settings(root_name: str):
+# ────────────────────────────────────────────────────────────
+#  Root node – QiSettings
+# ────────────────────────────────────────────────────────────
+class QiSettings(QiGroup):
     """
-    Class decorator.  Use as:
+    Root-level group.  Used as a context manager::
 
-        @define_settings(root_name="settings")
-        class MyPlugin:
-            settings = QiGroup()
-            with settings as s:
-                s.foo = 1
-                s.bar = QiProp("hello", title="Greeting")
-            settings.set_defaults({...})
-            def process(self):
-                print(self.settings.foo)
-                print(self.settings.model_json_schema())
+        with QiSettings() as settings:
+            settings.foo = 1
+            ...
 
-    What it does:
-    1) Grabs 'MyPlugin.settings' (a QiGroup), builds a Pydantic model from its _children.
-    2) Attaches the model class to the QiGroup as _model_cls and a template instance as _model_instance.
-    3) Replaces MyPlugin.__init__ so that on instantiation, 'self.settings' becomes a deepcopy of the template instance.
-    4) Adds helper methods 'model_json_schema()' and 'settings_dict()' to MyPlugin.
+    Upon leaving the with-block it auto-invokes :pyfunc:`build`, producing the
+    live Pydantic model instance so that reads/writes happen with validation.
     """
 
-    def decorator(plugin_class: Type[Any]) -> Type[Any]:
-        if not hasattr(plugin_class, root_name):
-            raise AttributeError(
-                f"{plugin_class.__name__} has no '{root_name}' attribute"
-            )
-
-        group = getattr(plugin_class, root_name)
-        if not isinstance(group, QiGroup):
-            raise TypeError(f"'{root_name}' must be a QiGroup instance")
-
-        # Build the Pydantic model from the QiGroup tree
-        model_class = group._build_model(model_name=root_name.capitalize() + "Model")
-        group._attach_model(model_class)
-
-        orig_init = getattr(plugin_class, "__init__", None)
-
-        def __init__(self, *args, **kwargs):
-            if orig_init is not None:
-                orig_init(self, *args, **kwargs)
-            default_model = deepcopy(group._model_instance)
-            object.__setattr__(self, root_name, default_model)
-
-        setattr(plugin_class, "__init__", __init__)
-
-        def simplify_schema(schema):
-            """
-            Simplify a JSON schema by consolidating identical definitions through multiple passes.
-            """
-            if not isinstance(schema, dict) or "$defs" not in schema:
-                return schema
-
-            # Working copy of definitions
-            defs = deepcopy(schema["$defs"])
-            # Final mapping of all old refs to new canonical refs
-            total_ref_mappings = {}
-
-            def get_signature(def_schema):
-                """Helper to create a structural signature for a schema definition"""
-                if not isinstance(def_schema, dict) or "properties" not in def_schema:
-                    return str(def_schema)
-
-                structure = {}
-                for prop_name, prop_def in def_schema.get("properties", {}).items():
-                    prop_structure = deepcopy(prop_def)
-                    for key_to_remove in ["default", "title", "description"]:
-                        if key_to_remove in prop_structure:
-                            del prop_structure[key_to_remove]
-                    structure[prop_name] = prop_structure
-
-                # Sort by key for a consistent signature
-                return str(sorted(structure.items()))
-
-            def update_refs_recursive(obj, mappings):
-                """Helper to apply reference mappings recursively"""
-                if isinstance(obj, dict):
-                    if "$ref" in obj and obj["$ref"] in mappings:
-                        obj["$ref"] = mappings[obj["$ref"]]
-                    for value in obj.values():
-                        update_refs_recursive(value, mappings)
-                elif isinstance(obj, list):
-                    for item in obj:
-                        update_refs_recursive(item, mappings)
-
-            while True:
-                # Group definitions by signature in the current state of `defs`
-                schema_groups = {}
-                for def_name, def_schema in defs.items():
-                    signature = get_signature(def_schema)
-                    if signature not in schema_groups:
-                        schema_groups[signature] = []
-                    schema_groups[signature].append(def_name)
-
-                # Determine mappings for this pass
-                pass_ref_mappings = {}
-                for signature, def_names in schema_groups.items():
-                    if len(def_names) > 1:
-                        # Deterministic canonical choice (shortest name, then alphabetical)
-                        canonical_name = sorted(def_names, key=lambda n: (len(n), n))[0]
-                        for other_name in def_names:
-                            if other_name != canonical_name:
-                                pass_ref_mappings[f"#/$defs/{other_name}"] = (
-                                    f"#/$defs/{canonical_name}"
-                                )
-
-                # If no new mappings were found, the structure has stabilized
-                if not pass_ref_mappings:
-                    break
-
-                # Apply the new mappings to the definitions themselves to prepare for the next iteration
-                update_refs_recursive(defs, pass_ref_mappings)
-
-                # Update the total mapping, resolving chains.
-                for old_ref, new_ref in pass_ref_mappings.items():
-                    # For all existing mappings that point to `old_ref`, make them point to `new_ref`
-                    for k, v in total_ref_mappings.items():
-                        if v == old_ref:
-                            total_ref_mappings[k] = new_ref
-                    # Add the new mapping
-                    total_ref_mappings[old_ref] = new_ref
-
-                # Remove the consolidated (non-canonical) definitions from our working set
-                for old_ref in pass_ref_mappings.keys():
-                    def_name_to_remove = old_ref.split("/")[-1]
-                    if def_name_to_remove in defs:
-                        del defs[def_name_to_remove]
-
-            # Create the final schema
-            final_schema = deepcopy(schema)
-            final_schema["$defs"] = defs
-
-            # Apply the total mappings to the whole schema structure
-            update_refs_recursive(final_schema, total_ref_mappings)
-
-            return final_schema
-
-        def settings_schema(self) -> dict[str, Any]:
-            # Get raw schema and simplify it
-            raw_schema = group._model_cls.model_json_schema()
-            return simplify_schema(raw_schema)
-
-        setattr(plugin_class, "settings_schema", settings_schema)
-
-        def settings_dict(self) -> dict[str, Any]:
-            return getattr(self, root_name).model_dump(mode="json")
-
-        setattr(plugin_class, "settings_dict", settings_dict)
-
-        return plugin_class
-
-    return decorator
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        super().__exit__(exc_type, exc_val, exc_tb)
+        self.build()
