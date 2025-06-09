@@ -6,6 +6,35 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
+STANDARD_FIELD_ARGS = {
+    "title",
+    "description",
+    "alias",
+    "validation_alias",
+    "serialization_alias",
+    "field_validator",
+    "serializer",
+    "frozen",
+    "validate_default",
+    "repr",
+    "init",
+    "init_var",
+    "kw_only",
+    "pattern",
+    "strict",
+    "gt",
+    "ge",
+    "lt",
+    "le",
+    "multiple_of",
+    "allow_inf_nan",
+    "max_digits",
+    "decimal_places",
+    "min_length",
+    "max_length",
+    "union_mode",
+}
+
 
 # ────────────────────────────────────────────────────────────
 #  QiProp – leaf node
@@ -26,8 +55,14 @@ class QiProp:
 
     def __init__(
         self,
-        default: int | str | float | bool
-        | list[Any] | tuple[Any] | set[Any] | None = None,
+        default: int
+        | str
+        | float
+        | bool
+        | list[Any]
+        | tuple[Any]
+        | set[Any]
+        | None = None,
         *,
         title: str | None = None,
         description: str | None = None,
@@ -56,15 +91,23 @@ class QiProp:
             info["title"] = self.title
         if self.description is not None:
             info["description"] = self.description
-        info.update(self._meta)
+
+        # Add any extra metadata to json_schema_extra
+        extra_meta = {
+            k: v for k, v in self._meta.items() if k not in STANDARD_FIELD_ARGS
+        }
+        if extra_meta:
+            info["json_schema_extra"] = extra_meta
+
+        # Add standard field arguments directly
+        for k, v in self._meta.items():
+            if k in STANDARD_FIELD_ARGS:
+                info[k] = v
+
         return info
 
     def _signature(self) -> str:
-        return (
-            "PROP|"
-            f"{type(self.default).__name__}|"
-            f"{repr(sorted(self._meta.items()))}"
-        )
+        return f"PROP|{type(self.default).__name__}|{repr(sorted(self._meta.items()))}"
 
 
 # ────────────────────────────────────────────────────────────
@@ -72,13 +115,11 @@ class QiProp:
 # ────────────────────────────────────────────────────────────
 class QiGroup:
     """
-    Group node.
+    Group node with three modes:
 
-    Collection shape rules
-    ----------------------
-    - list_mode=True                → list[SubModel]               (no default_key allowed)
-    - default_key="name"            → dict[str,SubModel], first entry "name"
-    - neither list_mode nor key set → dict[str,SubModel], first entry "_auto"
+    1. Direct object (modifiable=False): SubModel - single nested object
+    2. Collection (modifiable=True, list_mode=False): dict[str, SubModel] - mapping
+    3. List (modifiable=True, list_mode=True): list[SubModel] - list
     """
 
     # ------------ construction ------------ #
@@ -87,16 +128,18 @@ class QiGroup:
         *,
         title: str | None = None,
         description: str | None = None,
-        list_mode: bool | None = None,
+        list_mode: bool = False,
         default_key: str | None = None,
+        modifiable: bool = False,
         **kwargs: Any,
     ):
         if list_mode and default_key:
             raise ValueError("list_mode=True conflicts with default_key")
+        if default_key and not modifiable:
+            raise ValueError("default_key requires modifiable=True")
 
-        if list_mode is None:
-            list_mode = False                         # mapping by default
         self.list_mode: bool = bool(list_mode)
+        self.modifiable: bool = bool(modifiable)
         self._default_key_hint: str | None = default_key
 
         self.title = title
@@ -121,16 +164,17 @@ class QiGroup:
             description=self.description,
             list_mode=self.list_mode,
             default_key=self._default_key_hint,
+            modifiable=self.modifiable,
             **deepcopy(self._meta, memo),
         )
         clone._defaults = deepcopy(self._defaults, memo)
         clone._lock = RLock()
         for name, child in self._children.items():
-            cpy = deepcopy(child, memo)
-            if isinstance(cpy, QiGroup):
-                cpy._parent = clone
-                cpy._parent_key = name
-            clone._children[name] = cpy
+            clone_dest = deepcopy(child, memo)
+            if isinstance(clone_dest, QiGroup):
+                clone_dest._parent = clone
+                clone_dest._parent_key = name
+            clone._children[name] = clone_dest
         memo[id(self)] = clone
         return clone
 
@@ -139,26 +183,51 @@ class QiGroup:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        # snapshot default entry for mapping groups if none supplied
-        if not self.list_mode and not self._defaults:
+        # For modifiable collections, capture current state as default entry
+        if self.modifiable and not self.list_mode and not self._defaults:
             key = self._default_key_hint or "_auto"
-            self._defaults = {key: {}}
+            # Capture the current state of this group as the default entry
+            default_entry = {}
+            for child_name, child in self._children.items():
+                if isinstance(child, QiProp):
+                    default_entry[child_name] = child.default
+                elif isinstance(child, QiGroup):
+                    # For nested groups, get their current defaults recursively
+                    default_entry[child_name] = child._get_current_defaults()
+            self._defaults[key] = default_entry
 
     # --------------- attribute plumbing --------------- #
     def __getattr__(self, name: str) -> Any:
-        if self._model_instance is not None:
-            with self._lock:
-                return getattr(self._model_instance, name)
+        # Always check for original children first, even after build
+        # This allows access to QiGroup objects for methods like inherit()
         if name in self._children:
             return self._children[name]
+
+        # For runtime data access, use the model instance
+        if self._model_instance is not None:
+            with self._lock:
+                try:
+                    return getattr(self._model_instance, name)
+                except AttributeError:
+                    pass
+
         raise AttributeError(f"{type(self).__name__} has no attribute {name!r}")
 
     def __setattr__(self, name: str, value: Any) -> None:
         internals = {
-            "title", "description", "_meta",
-            "_children", "_defaults", "_parent", "_parent_key",
-            "_model_cls", "_model_instance", "_lock",
-            "list_mode", "_default_key_hint",
+            "title",
+            "description",
+            "_meta",
+            "_children",
+            "_defaults",
+            "_parent",
+            "_parent_key",
+            "_model_cls",
+            "_model_instance",
+            "_lock",
+            "list_mode",
+            "modifiable",
+            "_default_key_hint",
         }
         if name in internals or name.startswith("_"):
             object.__setattr__(self, name, value)
@@ -197,6 +266,8 @@ class QiGroup:
             raise RuntimeError("set_default_key() must be called before build()")
         if self.list_mode:
             raise RuntimeError("default_key applies only to mapping groups")
+        if not self.modifiable:
+            raise RuntimeError("default_key applies only to modifiable groups")
         self._default_key_hint = key
 
     def set_defaults(self, values: dict[str, Any]) -> None:
@@ -205,7 +276,18 @@ class QiGroup:
         root model so changes are visible immediately.
         """
         with self._lock:
-            self._defaults = deepcopy(values)
+            # Simple approach: merge new defaults with existing ones
+            for key, value in values.items():
+                child = self._children.get(key)
+                if isinstance(child, QiGroup):
+                    # For child groups, merge into their defaults
+                    if isinstance(value, dict):
+                        child._defaults.update(value)
+                    else:
+                        child._defaults[key] = value
+                else:
+                    # For non-group children, set in our defaults
+                    self._defaults[key] = value
             self._find_root().build()
 
     def inherit(self, *, defaults: bool = True) -> "QiGroup":
@@ -215,27 +297,35 @@ class QiGroup:
         Parameters
         ----------
         defaults
-            True  → copy the stored declarative defaults (default behaviour).  
+            True  → copy the stored declarative defaults (default behaviour).
             False → schema-only clone.
         """
         clone = deepcopy(self)
         if not defaults:
-            clone._defaults = {}
+            # Clear all defaults recursively
+            clone._clear_defaults_recursive()
         return clone
+
+    def _clear_defaults_recursive(self) -> None:
+        """Clear defaults recursively from this group and all children."""
+        self._defaults = {}
+        for child in self._children.values():
+            if isinstance(child, QiGroup):
+                child._clear_defaults_recursive()
 
     # ------------- defaults machinery ------------- #
     def _apply_defaults(self) -> None:
-        for k, override in deepcopy(self._defaults).items():
-            ch = self._children.get(k)
-            if isinstance(ch, QiProp) and not isinstance(ch, QiGroup):
-                ch.default = override
-            elif isinstance(ch, QiGroup):
-                ch._defaults = deepcopy(override)
-                ch._apply_defaults()
-        self._defaults = {}
-        for c in self._children.values():
-            if isinstance(c, QiGroup):
-                c._apply_defaults()
+        """Apply defaults to children (simplified version)."""
+        for key, override in deepcopy(self._defaults).items():
+            child = self._children.get(key)
+            if isinstance(child, QiProp):
+                child.default = override
+            elif isinstance(child, QiGroup):
+                child._defaults.update(
+                    override if isinstance(override, dict) else {key: override}
+                )
+                child._apply_defaults()
+        # Don't clear _defaults here - keep them for collections
 
     # ---------------- helpers ---------------- #
     def _find_root(self) -> "QiGroup":
@@ -244,22 +334,52 @@ class QiGroup:
             node = node._parent
         return node
 
+    def _get_current_defaults(self) -> dict[str, Any]:
+        """
+        Get the current default values for this group's children.
+        Used for capturing state in collection groups.
+        """
+        if self.modifiable and not self.list_mode:
+            # For collections, return the collection entries
+            return deepcopy(self._defaults)
+        else:
+            # For regular groups, capture current field values (not recursive defaults)
+            defaults = {}
+            for child_name, child in self._children.items():
+                if isinstance(child, QiProp):
+                    defaults[child_name] = child.default
+                elif isinstance(child, QiGroup) and not child.modifiable:
+                    # For non-modifiable nested groups, capture their field structure
+                    defaults[child_name] = child._get_current_defaults()
+                # Skip modifiable groups to avoid circular references
+            return defaults
+
     def _signature(self) -> str:
         parts = []
-        for nm, child in sorted(self._children.items()):
+        for child_name, child in sorted(self._children.items()):
             if isinstance(child, QiGroup):
-                parts.append((
-                    "G", nm, child._signature(),
-                    repr(sorted(child._meta.items())),
-                    child.list_mode,
-                    child._default_key_hint,
-                ))
+                parts.append(
+                    (
+                        "G",
+                        child_name,
+                        child._signature(),
+                        repr(sorted(child._meta.items())),
+                        child.list_mode,
+                        child.modifiable,
+                        child._default_key_hint,
+                    )
+                )
             else:
-                parts.append(("P", nm, child._signature()))
+                parts.append(("P", child_name, child._signature()))
         return (
-            repr(parts) + "|"
-            + repr(sorted(self._meta.items())) + "|"
-            + str(self.list_mode) + "|"
+            repr(parts)
+            + "|"
+            + repr(sorted(self._meta.items()))
+            + "|"
+            + str(self.list_mode)
+            + "|"
+            + str(self.modifiable)
+            + "|"
             + repr(self._default_key_hint)
         )
 
@@ -274,8 +394,8 @@ class QiGroup:
         self._apply_defaults()
         fields: dict[str, tuple[Any, Any]] = {}
 
-        for nm, child in self._children.items():
-            if isinstance(child, QiProp) and not isinstance(child, QiGroup):
+        for field_name, child in self._children.items():
+            if isinstance(child, QiProp):
                 default = child.default
                 if isinstance(default, (list, tuple, set)):
                     kinds = {type(x) for x in default}
@@ -285,21 +405,59 @@ class QiGroup:
                     ann: Any = list[inner]
                 else:
                     ann = type(default) if default is not None else Any
-                fields[nm] = (ann, Field(**child._field_info()))
-            else:
-                sub_cls = child._build_model(nm.capitalize() + "Model", cache)
-                meta = child._meta.copy()
+                fields[field_name] = (ann, Field(**child._field_info()))
+            elif isinstance(child, QiGroup):
+                sub_cls = child._build_model(field_name.capitalize() + "Model", cache)
+
+                # Prepare field info with proper separation of standard args and extras
+                field_info = {}
                 if child.title is not None:
-                    meta.setdefault("title", child.title)
+                    field_info["title"] = child.title
                 if child.description is not None:
-                    meta.setdefault("description", child.description)
-                if child.list_mode:
+                    field_info["description"] = child.description
+
+                # Separate standard field arguments from JSON schema extras
+
+                extra_meta = {
+                    k: v for k, v in child._meta.items() if k not in STANDARD_FIELD_ARGS
+                }
+                if extra_meta:
+                    field_info["json_schema_extra"] = extra_meta
+
+                # Add standard field arguments directly
+                for k, v in child._meta.items():
+                    if k in STANDARD_FIELD_ARGS:
+                        field_info[k] = v
+
+                # Three modes:
+                if child.modifiable and child.list_mode:
+                    # Mode 1: List of models
                     ann = list[sub_cls]
-                    field = Field(default_factory=list, **meta)
-                else:
+                    field = Field(default_factory=list, **field_info)
+                elif child.modifiable and not child.list_mode:
+                    # Mode 2: Dictionary of models (collection)
                     ann = dict[str, sub_cls]
-                    field = Field(default_factory=dict, **meta)
-                fields[nm] = (ann, field)
+
+                    # Create factory that populates with defaults
+                    def make_collection_factory(defaults_dict, sub_model_cls):
+                        def factory():
+                            result = {}
+                            for key, default_values in defaults_dict.items():
+                                if isinstance(default_values, dict):
+                                    result[key] = sub_model_cls(**default_values)
+                                # Skip non-dict values to avoid errors
+                            return result
+
+                        return factory
+
+                    factory_func = make_collection_factory(child._defaults, sub_cls)
+                    field = Field(default_factory=factory_func, **field_info)
+                else:
+                    # Mode 3: Direct nested model (not modifiable)
+                    ann = sub_cls
+                    field = Field(default_factory=sub_cls, **field_info)
+
+                fields[field_name] = (ann, field)
 
         cls = create_model(
             name,
@@ -337,6 +495,15 @@ class QiGroup:
         self._assert_built()
         with self._lock:
             return self._model_cls.model_json_schema()
+
+    def get_runtime_value(self, name: str) -> Any:
+        """
+        Get the runtime value for a specific field from the model instance.
+        This is different from __getattr__ which returns the original schema objects.
+        """
+        self._assert_built()
+        with self._lock:
+            return getattr(self._model_instance, name)
 
 
 # ────────────────────────────────────────────────────────────
