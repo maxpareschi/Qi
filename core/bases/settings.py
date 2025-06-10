@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 from threading import RLock
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    create_model,
+)
 
 STANDARD_FIELD_ARGS = {
     "title",
@@ -74,7 +79,7 @@ class QiProp:
         self._meta: dict[str, Any] = kwargs.copy()
 
     # ------------ public helpers ------------ #
-    def set_meta(self, **kwargs: Any) -> None:
+    def set_options(self, **kwargs: Any) -> None:
         """
         Update built-in attributes or extend metadata in place.
         """
@@ -249,7 +254,7 @@ class QiGroup:
             self._children[name] = QiProp(value)
 
     # ---------------- public helpers ---------------- #
-    def set_meta(self, **kwargs: Any) -> None:
+    def set_options(self, **kwargs: Any) -> None:
         with self._lock:
             for k, v in kwargs.items():
                 if k in {"title", "description"}:
@@ -316,16 +321,17 @@ class QiGroup:
     # ------------- defaults machinery ------------- #
     def _apply_defaults(self) -> None:
         """Apply defaults to children (simplified version)."""
-        for key, override in deepcopy(self._defaults).items():
-            child = self._children.get(key)
-            if isinstance(child, QiProp):
-                child.default = override
-            elif isinstance(child, QiGroup):
-                child._defaults.update(
-                    override if isinstance(override, dict) else {key: override}
-                )
-                child._apply_defaults()
-        # Don't clear _defaults here - keep them for collections
+        with self._lock:
+            for key, override in deepcopy(self._defaults).items():
+                child = self._children.get(key)
+                if isinstance(child, QiProp):
+                    child.default = override
+                elif isinstance(child, QiGroup):
+                    child._defaults.update(
+                        override if isinstance(override, dict) else {key: override}
+                    )
+                    child._apply_defaults()
+            # Don't clear _defaults here - keep them for collections
 
     # ---------------- helpers ---------------- #
     def _find_root(self) -> "QiGroup":
@@ -385,87 +391,99 @@ class QiGroup:
 
     # ------------- model building ------------- #
     def _build_model(
-        self, name: str, cache: Dict[str, type[BaseModel]]
+        self, name: str, cache: dict[str, type[BaseModel]]
     ) -> type[BaseModel]:
-        sig = self._signature()
-        if sig in cache:
-            return cache[sig]
+        with self._lock:
+            sig = self._signature()
+            if sig in cache:
+                return cache[sig]
 
-        self._apply_defaults()
-        fields: dict[str, tuple[Any, Any]] = {}
+            self._apply_defaults()
+            fields: dict[str, tuple[Any, Any]] = {}
 
-        for field_name, child in self._children.items():
-            if isinstance(child, QiProp):
-                default = child.default
-                if isinstance(default, (list, tuple, set)):
-                    kinds = {type(x) for x in default}
-                    if len(kinds) > 1:
-                        raise TypeError("heterogeneous list/tuple/set defaults")
-                    inner = kinds.pop() if default else Any
-                    ann: Any = list[inner]
-                else:
-                    ann = type(default) if default is not None else Any
-                fields[field_name] = (ann, Field(**child._field_info()))
-            elif isinstance(child, QiGroup):
-                sub_cls = child._build_model(field_name.capitalize() + "Model", cache)
+            for field_name, child in self._children.items():
+                if isinstance(child, QiProp):
+                    default = child.default
+                    if isinstance(default, (list, tuple, set)):
+                        kinds = {type(x) for x in default}
+                        if len(kinds) > 1:
+                            raise TypeError("heterogeneous list/tuple/set defaults")
+                        inner = kinds.pop() if default else Any
+                        ann: Any = list[inner]
+                    else:
+                        ann = type(default) if default is not None else Any
+                    fields[field_name] = (ann, Field(**child._field_info()))
+                elif isinstance(child, QiGroup):
+                    sub_cls = child._build_model(
+                        field_name.capitalize() + "Model", cache
+                    )
 
-                # Prepare field info with proper separation of standard args and extras
-                field_info = {}
-                if child.title is not None:
-                    field_info["title"] = child.title
-                if child.description is not None:
-                    field_info["description"] = child.description
+                    # Prepare field info with proper separation of standard args and extras
+                    field_info = {}
+                    if child.title is not None:
+                        field_info["title"] = child.title
+                    if child.description is not None:
+                        field_info["description"] = child.description
 
-                # Separate standard field arguments from JSON schema extras
+                    # Separate standard field arguments from JSON schema extras
 
-                extra_meta = {
-                    k: v for k, v in child._meta.items() if k not in STANDARD_FIELD_ARGS
-                }
-                if extra_meta:
-                    field_info["json_schema_extra"] = extra_meta
+                    extra_meta = {
+                        k: v
+                        for k, v in child._meta.items()
+                        if k not in STANDARD_FIELD_ARGS
+                    }
+                    if extra_meta:
+                        field_info["json_schema_extra"] = extra_meta
 
-                # Add standard field arguments directly
-                for k, v in child._meta.items():
-                    if k in STANDARD_FIELD_ARGS:
-                        field_info[k] = v
+                    # Add standard field arguments directly
+                    for k, v in child._meta.items():
+                        if k in STANDARD_FIELD_ARGS:
+                            field_info[k] = v
 
-                # Three modes:
-                if child.modifiable and child.list_mode:
-                    # Mode 1: List of models
-                    ann = list[sub_cls]
-                    field = Field(default_factory=list, **field_info)
-                elif child.modifiable and not child.list_mode:
-                    # Mode 2: Dictionary of models (collection)
-                    ann = dict[str, sub_cls]
+                    # Three modes:
+                    if child.modifiable and child.list_mode:
+                        # Mode 1: List of models
+                        ann = list[sub_cls]
 
-                    # Create factory that populates with defaults
-                    def make_collection_factory(defaults_dict, sub_model_cls):
-                        def factory():
-                            result = {}
-                            for key, default_values in defaults_dict.items():
-                                if isinstance(default_values, dict):
-                                    result[key] = sub_model_cls(**default_values)
-                                # Skip non-dict values to avoid errors
-                            return result
+                        # Add support for default items
+                        def list_factory():
+                            return [
+                                sub_cls(**item) for item in child._defaults.values()
+                            ]
 
-                        return factory
+                        field = Field(default_factory=list_factory, **field_info)
+                    elif child.modifiable and not child.list_mode:
+                        # Mode 2: Dictionary of models (collection)
+                        ann = dict[str, sub_cls]
 
-                    factory_func = make_collection_factory(child._defaults, sub_cls)
-                    field = Field(default_factory=factory_func, **field_info)
-                else:
-                    # Mode 3: Direct nested model (not modifiable)
-                    ann = sub_cls
-                    field = Field(default_factory=sub_cls, **field_info)
+                        # Create factory that populates with defaults
+                        def make_collection_factory(defaults_dict, sub_model_cls):
+                            def factory():
+                                result = {}
+                                for key, default_values in defaults_dict.items():
+                                    if isinstance(default_values, dict):
+                                        result[key] = sub_model_cls(**default_values)
+                                    # Skip non-dict values to avoid errors
+                                return result
 
-                fields[field_name] = (ann, field)
+                            return factory
 
-        cls = create_model(
-            name,
-            __config__=ConfigDict(validate_assignment=True),
-            **fields,  # type: ignore[arg-type]
-        )
-        cache[sig] = cls
-        return cls
+                        factory_func = make_collection_factory(child._defaults, sub_cls)
+                        field = Field(default_factory=factory_func, **field_info)
+                    else:
+                        # Mode 3: Direct nested model (not modifiable)
+                        ann = sub_cls
+                        field = Field(default_factory=sub_cls, **field_info)
+
+                    fields[field_name] = (ann, field)
+
+            cls = create_model(
+                name,
+                __config__=ConfigDict(validate_assignment=True),
+                **fields,  # type: ignore[arg-type]
+            )
+            cache[sig] = cls
+            return cls
 
     def build(self) -> None:
         """
@@ -474,7 +492,7 @@ class QiGroup:
         with self._lock:
             if not isinstance(self, QiSettings):
                 raise RuntimeError("build() is allowed only on root QiSettings")
-            cache: Dict[str, type[BaseModel]] = {}
+            cache: dict[str, type[BaseModel]] = {}
             self._model_cls = self._build_model(self.title or "RootModel", cache)
             self._model_instance = self._model_cls(**{})
 
