@@ -63,7 +63,7 @@ flowchart TD
 
 ## 3  Incremental Roadmap
 ### Phase 0 – Baseline Refactor (**Core**)
-1. Rename `QiConfigManager` → **`QiLaunchConfig`**; update imports/tests.  
+1. Rename `QiLaunchConfig` → **`QiLaunchConfig`**; update imports/tests.  
 2. Re‑enable `QiWindowManager.run()` so the GUI appears.
 
 ### Phase 1 – Data & Settings Foundation (**Core → MVP**)

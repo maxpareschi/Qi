@@ -9,7 +9,7 @@ from pydantic_settings import SettingsError
 from core.constants import BASE_PATH as CONST_BASE_PATH  # For comparison
 
 # Import the parts of config.py we want to test
-from core.launch_config import CONFIG_FILE, DOTENV_FILE, QiConfigManager
+from core.launch_config import CONFIG_FILE, DOTENV_FILE, QiLaunchConfig
 
 # Mark tests as synchronous if no async operations
 
@@ -33,14 +33,14 @@ def mock_config_files():
         yield mock_exists, mock_file_open
 
 
-# --- Test QiConfigManager Default Values and Basic Loading --- #
+# --- Test QiLaunchConfig Default Values and Basic Loading --- #
 
 
 def test_qiconfigmanager_defaults(mock_env_vars, mock_config_files):
     mock_exists, _ = mock_config_files
     mock_exists.return_value = False  # No config files exist
 
-    config = QiConfigManager()
+    config = QiLaunchConfig()
 
     assert config.dev_mode is False
     assert config.log_level == "INFO"
@@ -78,7 +78,7 @@ def test_qiconfigmanager_env_overrides(mock_env_vars, mock_config_files):
     if os.name == "nt":
         mock_env_vars.setenv("QI_ADDON_PATHS", "C:\\path\\one;C:\\path\\two")
 
-    config = QiConfigManager()
+    config = QiLaunchConfig()
 
     assert config.dev_mode is True
     assert (
@@ -126,7 +126,7 @@ def test_qiconfigmanager_toml_loading(mock_env_vars, mock_config_files):
             }
         },
     ):
-        config = QiConfigManager()
+        config = QiLaunchConfig()
     assert config.dev_mode is True
     assert config.log_level == "DEBUG", (
         f"Expected log_level DEBUG, got {config.log_level}"
@@ -168,7 +168,7 @@ QI_DEV_MODE=false
     # Pydantic-settings will open this file, so mock_file should cater to it
     mock_file.return_value.read.return_value = dotenv_content
 
-    config = QiConfigManager()
+    config = QiLaunchConfig()
 
     assert config.host == "dotenv_host"
     assert config.port == 7070
@@ -215,7 +215,7 @@ QI_PORT=2222
     mock_file.side_effect = open_side_effect
 
     # Instantiate config directly (do not rely on module-level singleton)
-    config = QiConfigManager()
+    config = QiLaunchConfig()
     assert config.host == "dotenv_host"  # .env wins over env and TOML
     assert config.port == 2222  # .env wins over env and TOML
     assert config.dev_mode is False  # From TOML, as not in .env or env vars
@@ -223,7 +223,7 @@ QI_PORT=2222
 
     # Test with dev_mode from env var (should still be overridden by .env if present)
     mock_env_vars.setenv("QI_DEV_MODE", "true")
-    config_env_dev = QiConfigManager()
+    config_env_dev = QiLaunchConfig()
     # If .env does not set QI_DEV_MODE, env var should win for dev_mode
     assert config_env_dev.dev_mode is True
     assert config_env_dev.log_level == "DEBUG"
@@ -240,33 +240,33 @@ def test_addon_paths_validator():
         Path("path3").resolve().as_posix(),
     ]
     # Test with string input
-    validated_str = QiConfigManager._parse_addon_paths(raw_paths_str)
+    validated_str = QiLaunchConfig._parse_addon_paths(raw_paths_str)
     assert validated_str == expected
 
     # Test with list input
     raw_paths_list = ["/abs/path1", "./rel/path2", "path3"]
-    validated_list = QiConfigManager._parse_addon_paths(raw_paths_list)
+    validated_list = QiLaunchConfig._parse_addon_paths(raw_paths_list)
     assert validated_list == expected
 
     # Test with empty string
-    assert QiConfigManager._parse_addon_paths("") == []
+    assert QiLaunchConfig._parse_addon_paths("") == []
     # Test with list of empty/whitespace strings (should be filtered)
-    assert QiConfigManager._parse_addon_paths(["", " "]) == []
+    assert QiLaunchConfig._parse_addon_paths(["", " "]) == []
 
 
 def test_log_level_validator():
-    assert QiConfigManager._normalize_log_level("info") == "INFO"
-    assert QiConfigManager._normalize_log_level("DEBUG") == "DEBUG"
+    assert QiLaunchConfig._normalize_log_level("info") == "INFO"
+    assert QiLaunchConfig._normalize_log_level("DEBUG") == "DEBUG"
 
 
 def test_base_path_validator():
     assert (
-        QiConfigManager._normalize_base_path("/custom/path")
+        QiLaunchConfig._normalize_base_path("/custom/path")
         == Path("/custom/path").resolve().as_posix()
     )
     # Default if empty string provided
     assert (
-        QiConfigManager._normalize_base_path("")
+        QiLaunchConfig._normalize_base_path("")
         == Path(CONST_BASE_PATH).resolve().as_posix()
     )
 
@@ -278,14 +278,14 @@ def test_dev_mode_setup_model_validator(mock_env_vars, mock_config_files):
     # Scenario 1: dev_mode is True, log_level should become DEBUG
     mock_env_vars.setenv("QI_DEV_MODE", "true")
     mock_env_vars.setenv("QI_LOG_LEVEL", "INFO")  # Should be overridden
-    config1 = QiConfigManager()
+    config1 = QiLaunchConfig()
     assert config1.dev_mode is True
     assert config1.log_level == "DEBUG"
 
     # Scenario 2: dev_mode is False, log_level should remain as specified
     mock_env_vars.setenv("QI_DEV_MODE", "false")
     mock_env_vars.setenv("QI_LOG_LEVEL", "WARNING")
-    config2 = QiConfigManager()
+    config2 = QiLaunchConfig()
     assert config2.dev_mode is False
     assert config2.log_level == "WARNING"
 
@@ -310,14 +310,14 @@ def test_invalid_toml_file_raises_settings_error(mock_env_vars, mock_config_file
 
     mock_file.side_effect = open_side_effect
     with pytest.raises(SettingsError):
-        QiConfigManager()
+        QiLaunchConfig()
 
 
-# --- Test QiConfigManager instance from module (qi_launch_config) --- #
+# --- Test QiLaunchConfig instance from module (qi_launch_config) --- #
 # These tests check the globally loaded qi_launch_config instance if its module is re-imported or reloaded.
 # This can be complex to test without specific mechanisms to force re-import with new mocks.
-# The above tests focus on the QiConfigManager class itself.
-# If core.config.py is imported, qi_launch_config = QiConfigManager() runs immediately.
+# The above tests focus on the QiLaunchConfig class itself.
+# If core.config.py is imported, qi_launch_config = QiLaunchConfig() runs immediately.
 # To test the instance `qi_launch_config` with mocks, the mocks need to be active *before* `core.config` is imported by the test module.
 
 
@@ -326,7 +326,7 @@ def test_invalid_toml_file_raises_settings_error(mock_env_vars, mock_config_file
     reason="Module-level singleton cannot reliably be tested due to import/mocking order."
 )
 def test_module_qi_launch_config_instance_loads_from_env(mock_exists_module_scope):
-    # Need to force re-evaluation of core.config module or its QiConfigManager instantiation
+    # Need to force re-evaluation of core.config module or its QiLaunchConfig instantiation
     # This usually requires `importlib.reload`
     import core.launch_config
 
