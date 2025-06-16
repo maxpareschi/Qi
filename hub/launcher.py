@@ -1,7 +1,7 @@
 import os
 import threading
 
-from core.config import qi_config
+from core.launch_config import qi_launch_config
 from hub.lib.runners import run_server
 
 
@@ -13,11 +13,11 @@ def qi_gui_launcher():
     # bind_window_manager(window_manager)
 
     server_thread: threading.Thread = run_server(
-        qi_config.host,
-        qi_config.port,
-        qi_config.ssl_key_path,
-        qi_config.ssl_cert_path,
-        qi_config.dev_mode,
+        qi_launch_config.host,
+        qi_launch_config.port,
+        qi_launch_config.ssl_key_path,
+        qi_launch_config.ssl_cert_path,
+        qi_launch_config.dev_mode,
     )
 
     # icon_path = os.path.join(
@@ -25,7 +25,7 @@ def qi_gui_launcher():
     #     "static",
     #     "qi_512.png",
     # ).replace("\\", "/")
-    # for addon_name, addon_data in qi_config.addon_paths.items():
+    # for addon_name, addon_data in qi_launch_config.addon_paths.items():
     #     window_manager.create_window(addon=addon_name, session_id="test-session")
     # window_manager.run(
     #     icon=icon_path,

@@ -17,7 +17,7 @@ from pydantic_settings import (
 from core.constants import BASE_PATH, CONFIG_FILE, DOTENV_FILE
 
 
-class QiConfigManager(BaseSettings):
+class QiLaunchConfig(BaseSettings):
     """
     Qi launcher configuration settings.
     """
@@ -140,7 +140,7 @@ class QiConfigManager(BaseSettings):
 
 
 try:
-    qi_config: QiConfigManager = QiConfigManager()
+    qi_launch_config: QiLaunchConfig = QiLaunchConfig()
 
 except SettingsError as e:
     raise SettingsError(

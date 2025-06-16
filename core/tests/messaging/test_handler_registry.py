@@ -1,9 +1,9 @@
 import pytest
 
-from core.bases.models import (
+from core.messaging.handler_registry import HUB_ID, QiHandlerRegistry
+from core.models import (
     QiMessage,  # Assuming QiMessage is needed for handler signatures
 )
-from core.messaging.handler_registry import HUB_ID, QiHandlerRegistry
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio

@@ -3,9 +3,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.bases.models import QiMessage, QiMessageType, QiSession
-from core.config import qi_config  # For default timeouts
 from core.constants import HUB_ID
+from core.launch_config import qi_launch_config  # For default timeouts
 from core.messaging.connection_manager import (
     QiConnectionManager,  # For type hinting if needed
 )
@@ -13,6 +12,7 @@ from core.messaging.handler_registry import (
     QiHandlerRegistry,  # For type hinting if needed
 )
 from core.messaging.message_bus import QiMessageBus
+from core.models import QiMessage, QiMessageType, QiSession
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio
@@ -71,10 +71,10 @@ def mock_handler_registry():
 
 @pytest.fixture
 async def message_bus(mock_connection_manager, mock_handler_registry) -> QiMessageBus:
-    # Temporarily patch qi_config if its attributes are accessed directly in __init__
+    # Temporarily patch qi_launch_config if its attributes are accessed directly in __init__
     with (
-        patch.object(qi_config, "reply_timeout", 5.0),
-        patch.object(qi_config, "max_pending_requests_per_session", 100),
+        patch.object(qi_launch_config, "reply_timeout", 5.0),
+        patch.object(qi_launch_config, "max_pending_requests_per_session", 100),
     ):
         bus = QiMessageBus()
     bus._connection_manager = mock_connection_manager
@@ -314,7 +314,9 @@ async def test_request_limit_exceeded(message_bus: QiMessageBus):
     # Reset for other tests if bus instance is reused by pytest across tests in a class
     # (though with function-scoped fixture, this shouldn't be an issue)
     message_bus._session_to_pending.pop(session_id, None)
-    message_bus._max_pending = qi_config.max_pending_requests_per_session  # reset
+    message_bus._max_pending = (
+        qi_launch_config.max_pending_requests_per_session
+    )  # reset
 
 
 # --- Test _fan_out Logic (indirectly through publish, or can be tested directly) ---

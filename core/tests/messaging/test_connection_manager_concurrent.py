@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.bases.models import QiSession
 from core.messaging.connection_manager import QiConnectionManager
+from core.models import QiSession
 
 # Mark all tests in this module as anyio
 pytestmark = pytest.mark.anyio

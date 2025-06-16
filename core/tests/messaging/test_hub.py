@@ -3,14 +3,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.bases.models import (  # Assuming QiMessage is needed
+from core.constants import HUB_ID
+from core.messaging.hub import QiHub
+from core.messaging.message_bus import QiMessageBus  # For type hinting and patching
+from core.models import (  # Assuming QiMessage is needed
     QiMessage,
     QiMessageType,
     QiSession,
 )
-from core.constants import HUB_ID
-from core.messaging.hub import QiHub
-from core.messaging.message_bus import QiMessageBus  # For type hinting and patching
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio

@@ -4,7 +4,7 @@ import pytest
 from fastapi import WebSocket
 from fastapi.testclient import TestClient
 
-from core.bases.models import QiMessage, QiSession
+from core.models import QiMessage, QiSession
 from core.server.server import qi_server, ws_endpoint
 
 

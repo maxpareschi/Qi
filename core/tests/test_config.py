@@ -6,9 +6,10 @@ from unittest.mock import mock_open, patch
 import pytest
 from pydantic_settings import SettingsError
 
-# Import the parts of config.py we want to test
-from core.config import CONFIG_FILE, DOTENV_FILE, QiConfigManager
 from core.constants import BASE_PATH as CONST_BASE_PATH  # For comparison
+
+# Import the parts of config.py we want to test
+from core.launch_config import CONFIG_FILE, DOTENV_FILE, QiConfigManager
 
 # Mark tests as synchronous if no async operations
 
@@ -312,22 +313,22 @@ def test_invalid_toml_file_raises_settings_error(mock_env_vars, mock_config_file
         QiConfigManager()
 
 
-# --- Test QiConfigManager instance from module (qi_config) --- #
-# These tests check the globally loaded qi_config instance if its module is re-imported or reloaded.
+# --- Test QiConfigManager instance from module (qi_launch_config) --- #
+# These tests check the globally loaded qi_launch_config instance if its module is re-imported or reloaded.
 # This can be complex to test without specific mechanisms to force re-import with new mocks.
 # The above tests focus on the QiConfigManager class itself.
-# If core.config.py is imported, qi_config = QiConfigManager() runs immediately.
-# To test the instance `qi_config` with mocks, the mocks need to be active *before* `core.config` is imported by the test module.
+# If core.config.py is imported, qi_launch_config = QiConfigManager() runs immediately.
+# To test the instance `qi_launch_config` with mocks, the mocks need to be active *before* `core.config` is imported by the test module.
 
 
 # Example of how one might attempt to test the module-level instance (can be tricky):
 @pytest.mark.xfail(
     reason="Module-level singleton cannot reliably be tested due to import/mocking order."
 )
-def test_module_qi_config_instance_loads_from_env(mock_exists_module_scope):
+def test_module_qi_launch_config_instance_loads_from_env(mock_exists_module_scope):
     # Need to force re-evaluation of core.config module or its QiConfigManager instantiation
     # This usually requires `importlib.reload`
-    import core.config
+    import core.launch_config
 
-    importlib.reload(core.config)
-    assert core.config.qi_config.host == "module_instance_test_host"
+    importlib.reload(core.launch_config)
+    assert core.launch_config.qi_launch_config.host == "module_instance_test_host"

@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ConfigDict, ValidationError
 
-from core.bases.models import (
+from core.models import (
     QiBaseModel,
     QiContext,
     QiMessage,
@@ -13,8 +13,8 @@ from core.bases.models import (
     QiUser,
 )
 
-# Assuming qi_config is accessible for patching its dev_mode attribute
-# from core.config import qi_config # This import might cause issues if qi_config itself tries to load things
+# Assuming qi_launch_config is accessible for patching its dev_mode attribute
+# from core.config import qi_launch_config # This import might cause issues if qi_launch_config itself tries to load things
 
 # Mark all tests in this module as asyncio if any async functions are used,
 # but these model tests are mostly synchronous.

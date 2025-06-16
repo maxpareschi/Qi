@@ -2,7 +2,7 @@
 
 import logging
 
-from core.config import qi_config
+from core.launch_config import qi_launch_config
 
 # ANSI color codes
 COLORS = {
@@ -101,8 +101,8 @@ def get_logger(name: str | None = None, level: int | None = None) -> logging.Log
     """
     Get a logger with a custom formatter.
     """
-    qi_dev_mode = qi_config.dev_mode
-    qi_log_level = qi_config.log_level
+    qi_dev_mode = qi_launch_config.dev_mode
+    qi_log_level = qi_launch_config.log_level
 
     level_map = {
         "DEBUG": DEBUG,

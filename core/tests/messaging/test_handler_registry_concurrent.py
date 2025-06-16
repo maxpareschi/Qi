@@ -11,9 +11,9 @@ import random
 
 import pytest
 
-from core.bases.models import QiMessage
 from core.constants import HUB_ID
 from core.messaging.handler_registry import QiHandlerRegistry
+from core.models import QiMessage
 
 # Mark all tests as asyncio
 pytestmark = pytest.mark.asyncio

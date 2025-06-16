@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.bases.models import QiMessage, QiMessageType, QiSession
 from core.constants import HUB_ID
 from core.messaging.message_bus import QiMessageBus
+from core.models import QiMessage, QiMessageType, QiSession
 
 # Mark all tests as asyncio
 pytestmark = pytest.mark.asyncio

@@ -3,9 +3,9 @@
 import asyncio
 from uuid import uuid4
 
-from core.bases.models import QiHandler
 from core.constants import HUB_ID
 from core.logger import get_logger
+from core.models import QiHandler
 
 log = get_logger(__name__)
 

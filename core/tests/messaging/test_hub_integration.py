@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.bases.models import QiMessage, QiMessageType, QiSession
 from core.constants import HUB_ID
 from core.messaging.hub import QiHub
+from core.models import QiMessage, QiMessageType, QiSession
 
 # Mark all tests as asyncio
 pytestmark = pytest.mark.asyncio

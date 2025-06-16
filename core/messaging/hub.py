@@ -3,10 +3,10 @@
 import asyncio
 from typing import Any, Final
 
-from core.bases.models import QiMessage, QiSession
 from core.constants import HUB_ID
 from core.logger import get_logger
 from core.messaging.message_bus import QiMessageBus
+from core.models import QiMessage, QiSession
 
 log = get_logger(__name__)
 

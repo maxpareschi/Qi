@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from core.config import qi_config
+from core.launch_config import qi_launch_config
 
 TupleKey2: TypeAlias = tuple[str | None, str | None]
 """Type alias for a tuple of two strings or None."""
@@ -29,12 +29,12 @@ class QiBaseModel(BaseModel):
 
     model_config = ConfigDict(
         # ENABLE validation in dev mode, DISABLE in production
-        validate_assignment=qi_config.dev_mode,  # Always validate assignments
-        validate_default=qi_config.dev_mode,  # Always validate defaults
-        validate_return=qi_config.dev_mode,  # Always validate returns
-        validate_on_construction=qi_config.dev_mode,  # Always validate on construction
+        validate_assignment=qi_launch_config.dev_mode,  # Always validate assignments
+        validate_default=qi_launch_config.dev_mode,  # Always validate defaults
+        validate_return=qi_launch_config.dev_mode,  # Always validate returns
+        validate_on_construction=qi_launch_config.dev_mode,  # Always validate on construction
         extra="forbid"
-        if qi_config.dev_mode
+        if qi_launch_config.dev_mode
         else "allow",  # Forbid extra fields in dev mode
     )
 

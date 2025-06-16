@@ -7,12 +7,12 @@ from uuid import uuid4
 
 from fastapi import WebSocket
 
-from core.bases.models import QiContext, QiMessage, QiMessageType, QiSession
-from core.config import qi_config
 from core.constants import HUB_ID
+from core.launch_config import qi_launch_config
 from core.logger import get_logger
 from core.messaging.connection_manager import QiConnectionManager
 from core.messaging.handler_registry import QiHandlerRegistry
+from core.models import QiContext, QiMessage, QiMessageType, QiSession
 
 log = get_logger(__name__)
 
@@ -31,8 +31,8 @@ class QiMessageBus:
         self._connection_manager: QiConnectionManager = QiConnectionManager()
         self._handler_registry: QiHandlerRegistry = QiHandlerRegistry()
 
-        self._reply_timeout = qi_config.reply_timeout
-        self._max_pending = qi_config.max_pending_requests_per_session
+        self._reply_timeout = qi_launch_config.reply_timeout
+        self._max_pending = qi_launch_config.max_pending_requests_per_session
 
         # message_id → Future awaiting a reply payload
         self._pending_request_futures: dict[str, asyncio.Future[Any]] = {}

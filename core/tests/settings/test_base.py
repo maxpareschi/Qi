@@ -1,6 +1,6 @@
 import pytest
 
-from core.bases.settings import QiGroup, QiProp, QiSettings
+from core.settings.base import QiGroup, QiProp, QiSettings
 
 
 def test_basic_assignment_and_serialization():

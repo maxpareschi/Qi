@@ -63,35 +63,35 @@ def test_get_logger_sets_level_from_argument():
     assert qi_global_handler.level == ERROR
 
 
-@patch("core.logger.qi_config")
-def test_get_logger_dev_mode_true_sets_debug(mock_qi_config):
-    mock_qi_config.dev_mode = True
-    mock_qi_config.log_level = "INFO"  # This should be overridden by dev_mode
+@patch("core.logger.qi_launch_config")
+def test_get_logger_dev_mode_true_sets_debug(mock_qi_launch_config):
+    mock_qi_launch_config.dev_mode = True
+    mock_qi_launch_config.log_level = "INFO"  # This should be overridden by dev_mode
 
     _ = get_logger("test_dev_mode_logger")
     assert root_logger.level == DEBUG
     assert qi_global_handler.level == DEBUG
 
 
-@patch("core.logger.qi_config")
-def test_get_logger_dev_mode_false_uses_config_level(mock_qi_config):
-    mock_qi_config.dev_mode = False
-    mock_qi_config.log_level = "WARNING"
+@patch("core.logger.qi_launch_config")
+def test_get_logger_dev_mode_false_uses_config_level(mock_qi_launch_config):
+    mock_qi_launch_config.dev_mode = False
+    mock_qi_launch_config.log_level = "WARNING"
 
     _ = get_logger("test_prod_mode_logger_warning")
     assert root_logger.level == WARNING
     assert qi_global_handler.level == WARNING
 
-    mock_qi_config.log_level = "CRITICAL"
+    mock_qi_launch_config.log_level = "CRITICAL"
     _ = get_logger("test_prod_mode_logger_critical")
     assert root_logger.level == CRITICAL
     assert qi_global_handler.level == CRITICAL
 
 
-@patch("core.logger.qi_config")
-def test_get_logger_level_arg_overrides_config(mock_qi_config):
-    mock_qi_config.dev_mode = True  # Should be overridden by level arg
-    mock_qi_config.log_level = "INFO"  # Should be overridden by level arg
+@patch("core.logger.qi_launch_config")
+def test_get_logger_level_arg_overrides_config(mock_qi_launch_config):
+    mock_qi_launch_config.dev_mode = True  # Should be overridden by level arg
+    mock_qi_launch_config.log_level = "INFO"  # Should be overridden by level arg
 
     _ = get_logger("test_override_logger", level=ERROR)
     assert root_logger.level == ERROR

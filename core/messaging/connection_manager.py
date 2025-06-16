@@ -5,8 +5,8 @@ from typing import Iterable
 
 from fastapi import WebSocket
 
-from core.bases.models import QiSession
 from core.logger import get_logger
+from core.models import QiSession
 
 log = get_logger(__name__)
 

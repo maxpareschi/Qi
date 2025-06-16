@@ -10,10 +10,10 @@ It also configures middleware based on the development mode (dev proxy or SPA st
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from core.bases.models import QiMessage, QiSession
-from core.config import qi_config
+from core.launch_config import qi_launch_config
 from core.logger import get_logger
 from core.messaging.hub import qi_hub
+from core.models import QiMessage, QiSession
 from core.server.middleware import (
     QiDevProxyMiddleware,
     QiSPAStaticFilesMiddleware,
@@ -132,7 +132,7 @@ async def ws_endpoint(ws: WebSocket):
         # We ensure our application-level cleanup (unregister) happens.
 
 
-if qi_config.dev_mode:
+if qi_launch_config.dev_mode:
     qi_server.add_middleware(QiDevProxyMiddleware)
     log.debug("Dev mode enabled: using QiDevProxyMiddleware for routing.")
 else:
