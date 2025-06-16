@@ -3,7 +3,7 @@ node_modules
 .svelte-kit
 .venv
 **/__pycache__
-**/ui
+**/ui-dist
 
 # Output
 .output

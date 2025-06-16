@@ -1,5 +1,5 @@
 # hub/launcher.py
-from core import qi_config
+from core.config import qi_config
 from core.logger import get_logger
 from hub.launcher import qi_gui_launcher
 

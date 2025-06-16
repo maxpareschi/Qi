@@ -24,4 +24,4 @@ export function qiHeader(addon) {
 
 export const addonName = path.basename(path.dirname(this_dirname));
 export const addonDir = resolve(this_dirname);
-export const addonBuildDir = resolve(path.dirname(this_dirname), "ui");
+export const addonBuildDir = resolve(path.dirname(this_dirname), "ui-dist");

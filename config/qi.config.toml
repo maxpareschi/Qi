@@ -1,7 +1,7 @@
 [qi]
 dev_mode = false
 log_level = "INFO"
-host = "127.0.0.1"
+host = "localhost"
 port = 8000
 ssl_cert_path = ""
 ssl_key_path = ""
