@@ -4,8 +4,7 @@ import sys
 from pathlib import Path
 from typing import Type
 
-from core.addon.base import QiAddonBase
-from core.addon.exceptions import AddonDiscoveryError, AddonLoadError
+from core.addon.base import AddonDiscoveryError, AddonLoadError, QiAddonBase
 
 
 def discover_addon_dirs(addon_paths: list[str]) -> dict[str, Path]:

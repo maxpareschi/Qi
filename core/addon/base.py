@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import abc
 from typing import Literal
+
+from core.settings.base import QiGroup
 
 AddonRole = Literal["auth", "db", "host", "settings", "cli", "rest"]
 
@@ -49,6 +53,16 @@ class QiAddonBase(abc.ABC):
         """
         raise NotImplementedError
 
+    def get_settings_definition(self) -> "QiGroup | None":
+        """
+        Optional method for an addon to define its settings schema.
+
+        Returns:
+            A QiGroup object defining the addon's settings, or None if the
+            addon has no settings.
+        """
+        return None
+
     def install(self) -> None:
         """
         Optional method called after all addons have been registered.
@@ -66,3 +80,34 @@ class QiAddonBase(abc.ABC):
         Use this to unregister handlers, close connections, or save state.
         """
         raise NotImplementedError
+
+
+class AddonManagerError(Exception):
+    """Base exception for the Addon Manager."""
+
+
+class AddonDiscoveryError(AddonManagerError):
+    """Raised when an addon cannot be discovered from its path."""
+
+
+class AddonLoadError(AddonManagerError):
+    """Raised when an addon module fails to load or instantiate."""
+
+
+class MissingProviderError(AddonManagerError):
+    """Raised when a required provider addon (e.g., 'auth' or 'db') is not found."""
+
+    def __init__(self, role: str):
+        self.role = role
+        super().__init__(f"Mandatory provider addon with role '{role}' not found.")
+
+
+class DuplicateRoleError(AddonManagerError):
+    """Raised when multiple addons are found for a unique role."""
+
+    def __init__(self, role: str, addons: list[str]):
+        self.role = role
+        self.addons = addons
+        super().__init__(
+            f"Found multiple addons for unique role '{role}': {', '.join(addons)}"
+        )

@@ -13,8 +13,11 @@ dependencies = [
     "pytest>=8.3.5",
     "pytest-asyncio>=1.0.0",
     "pywebview>=5.4",
-    "watchdog>=6.0.0",
+    "deepmerge",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[project.optional-dependencies]
+# ... existing code ...
