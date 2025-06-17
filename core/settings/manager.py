@@ -236,9 +236,11 @@ class QiSettingsManager:
         # 4. Save the updated settings back to the database
         await self._db_manager.save_settings(scope, current_settings, addon_name)
 
-        # 5. Update the in-memory settings model
-        # We'll rebuild the entire settings model for simplicity
-        # In a more optimized implementation, we could update just the specific path
+        # 5. Rebuild the in-memory settings model to apply the change.
+        # This is inefficient for frequent updates but guarantees consistency.
+        # A more optimized implementation might update the model in-place.
+        log.debug(f"Rebuilding settings model to apply patch for '{path}'...")
+        self._is_built = False  # Allow build_settings to run again
         await self.build_settings()
 
-        log.info(f"Updated setting {path} in {scope} scope")
+        log.info(f"Updated setting '{path}' in '{scope}' scope.")

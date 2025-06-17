@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Type
 
 from core.addon.base import AddonDiscoveryError, AddonLoadError, QiAddonBase
+from core.logger import get_logger
+
+log = get_logger(__name__)
 
 
 def discover_addon_dirs(addon_paths: list[str]) -> dict[str, Path]:
@@ -27,9 +30,12 @@ def discover_addon_dirs(addon_paths: list[str]) -> dict[str, Path]:
         for child in path.iterdir():
             if child.is_dir() and (child / "addon.py").is_file():
                 if child.name in discovered:
-                    # TODO: Log a warning about duplicate addon names.
                     # For now, the first one discovered wins.
-                    pass
+                    log.warning(
+                        f"Duplicate addon name '{child.name}' found at "
+                        f"'{child.resolve()}'. The existing one at "
+                        f"'{discovered[child.name]}' will be used."
+                    )
                 else:
                     discovered[child.name] = child.resolve()
     return discovered

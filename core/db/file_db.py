@@ -42,10 +42,12 @@ class JsonFileDbAdapter(QiFileDbAdapter):
 
         # Cache for loaded data with timestamps
         self._cache: dict[str, dict[str, Any]] = {}
-        # Cache entry format: {key: {"data": data, "timestamp": mtime}}
+        # Cache entry format: {key: {"data": data, "mtime": float, "load_time": float}}
+        # "mtime" is the file's modification time (from time.time())
+        # "load_time" is the monotonic time the cache entry was created (from time.monotonic())
 
-        # Cache TTL in seconds (10 seconds by default)
-        self._cache_ttl = 10
+        # Cache TTL in seconds
+        self._cache_ttl = 10.0
 
         # Default bundle if none is set
         self._default_bundle = "production"
@@ -89,46 +91,46 @@ class JsonFileDbAdapter(QiFileDbAdapter):
         """
         Check if the cached data for a key is still valid.
 
+        A cache entry is valid if:
+        1. It's within the TTL (time-to-live).
+        2. The TTL has expired, but the underlying file has not been modified
+           since the cache was last written.
+
         Args:
-            key: The cache key
-            file_path: The path to the file
+            key: The cache key.
+            file_path: The path to the backing file.
 
         Returns:
-            True if the cache is valid, False otherwise
+            True if the cache is valid, False otherwise.
         """
         if key not in self._cache:
             return False
 
-        if not file_path.exists():
-            # File was deleted, invalidate cache
+        cache_entry = self._cache[key]
+        load_time = cache_entry.get("load_time", 0)
+
+        # 1. Check if cache is fresh based on TTL (monotonic clock)
+        if time.monotonic() - load_time < self._cache_ttl:
+            return True
+
+        # 2. TTL expired, check if the file on disk has been modified
+        try:
+            current_mtime = file_path.stat().st_mtime
+            cached_mtime = cache_entry.get("mtime", 0)
+            if current_mtime > cached_mtime:
+                log.debug(f"Cache invalidated for '{key}': file modified on disk.")
+                del self._cache[key]
+                return False
+        except (FileNotFoundError, PermissionError) as e:
+            # If we can't stat the file, invalidate the cache to be safe
+            log.warning(f"Could not stat file '{file_path}' for cache validation: {e}")
             del self._cache[key]
             return False
 
-        cache_entry = self._cache[key]
-        cached_timestamp = cache_entry.get("timestamp", 0)
-        current_time = time.time()
-
-        # Check if cache has expired based on TTL
-        if current_time - cached_timestamp > self._cache_ttl:
-            # Check if file was modified
-            try:
-                file_mtime = file_path.stat().st_mtime
-                if file_mtime > cached_timestamp:
-                    # File was modified, invalidate cache
-                    del self._cache[key]
-                    return False
-                else:
-                    # File wasn't modified, update timestamp to extend TTL
-                    self._cache[key]["timestamp"] = current_time
-            except (FileNotFoundError, PermissionError) as e:
-                # If we can't check the file, invalidate cache to be safe
-                log.warning(
-                    f"Error checking file modification time for {file_path}: {e}"
-                )
-                del self._cache[key]
-                return False
-
-        return True
+        # 3. TTL expired but file not modified. It's stale but not invalid.
+        # We'll force a re-read by returning False. The get() method will
+        # then overwrite the cache entry with fresh data and a new load_time.
+        return False
 
     async def get(self, key: str) -> dict[str, Any] | None:
         """
@@ -150,16 +152,27 @@ class JsonFileDbAdapter(QiFileDbAdapter):
             return self._cache[key]["data"]
 
         if not file_path.exists() or not file_path.is_file():
+            # If file doesn't exist, ensure it's removed from cache
+            if key in self._cache:
+                del self._cache[key]
             return None
 
         try:
+            mtime = file_path.stat().st_mtime
             with open(file_path, "r") as f:
                 data = json.load(f)
-                # Cache the data with current timestamp
-                self._cache[key] = {"data": data, "timestamp": time.time()}
+                # Cache the data with current file mtime and monotonic load time
+                self._cache[key] = {
+                    "data": data,
+                    "mtime": mtime,
+                    "load_time": time.monotonic(),
+                }
                 return data
-        except (json.JSONDecodeError, IOError) as e:
-            log.error(f"Error reading file {file_path}: {e}")
+        except (json.JSONDecodeError, IOError, FileNotFoundError) as e:
+            log.error(f"Error reading or decoding file {file_path}: {e}")
+            # Ensure invalid entry is removed from cache
+            if key in self._cache:
+                del self._cache[key]
             return None
 
     async def set(self, key: str, value: dict[str, Any]) -> None:
@@ -182,8 +195,13 @@ class JsonFileDbAdapter(QiFileDbAdapter):
             with open(file_path, "w") as f:
                 json.dump(value, f, indent=2)
 
-            # Update cache with current timestamp
-            self._cache[key] = {"data": value, "timestamp": time.time()}
+            # Update cache after successful write
+            mtime = file_path.stat().st_mtime
+            self._cache[key] = {
+                "data": value,
+                "mtime": mtime,
+                "load_time": time.monotonic(),
+            }
         except (TypeError, IOError) as e:
             log.error(f"Error writing to file {file_path}: {e}")
             raise StorageError(f"Failed to write data: {e}")

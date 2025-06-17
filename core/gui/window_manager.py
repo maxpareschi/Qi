@@ -1,28 +1,18 @@
 import os
 import uuid
+from functools import partial
+from types import SimpleNamespace
 from typing import Any
 
 import webview
 
+from core.gui import window_api
 from core.logger import get_logger
 
 log = get_logger(__name__)
 
 
-class _QiWindowManagerSingleton(type):
-    _inst: "QiWindowManager|None" = None
-
-    def __call__(cls, *a, **kw):
-        if cls._inst is None:
-            cls._inst = super().__call__(*a, **kw)
-        return cls._inst
-
-    def reset(cls):
-        """Reset singleton for testing."""
-        cls._inst = None
-
-
-class QiWindowManager(metaclass=_QiWindowManagerSingleton):
+class QiWindowManager:
     """A manager for windows that handles the creation, management,
     and destruction of windows. It's the main entry point for the
     GUI. The run method starts the main loop.
@@ -32,234 +22,89 @@ class QiWindowManager(metaclass=_QiWindowManagerSingleton):
         self._windows: dict[str, webview.Window] = {}
         self.dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
+    def _on_closed(self, window_id: str):
+        log.debug(f"Window '{window_id}' closed by user, removing from registry.")
+        if window_id in self._windows:
+            del self._windows[window_id]
+
     def create_window(
         self,
         addon: str,
-        session_id: str = None,
+        session_id: str | None = None,
         **kwargs: Any,
     ) -> str:
-        """
-        Create a new window for the given addon and session_id.
-
-        Args:
-            addon: The addon name (e.g., "addon-skeleton")
-            session_id: The session identifier
-            **kwargs: Additional window creation arguments
-
-        Returns:
-            The window_id (UUID string) of the created window
-        """
-
-        # build a single session_id if not provided by any requestor
-        if not session_id:
-            session_id = str(uuid.uuid4())
-
+        """Create a new window for the given addon and session_id."""
+        session_id = session_id or str(uuid.uuid4())
         window_id = str(uuid.uuid4())
-
-        # this is a mandatory override on parameters, should not be changed or removed.
 
         server_address = os.getenv("QI_LOCAL_SERVER", "127.0.0.1")
         server_port = os.getenv("QI_LOCAL_PORT", 8000)
-        server_protocol = (
-            "http://"
-            if (
-                os.getenv("QI_SSL_KEY_PATH", None) is None
-                or os.getenv("QI_SSL_CERT_PATH", None) is None
-            )
-            else "https://"
+        use_ssl = (
+            os.getenv("QI_SSL_KEY_PATH") is not None
+            and os.getenv("QI_SSL_CERT_PATH") is not None
         )
+        protocol = "https" if use_ssl else "http"
+        url = f"{protocol}://{server_address}:{server_port}/{addon}?session_id={session_id}&window_id={window_id}"
 
-        url = f"{server_protocol}{server_address}:{server_port}/{addon}?session_id={session_id}&window_id={window_id}"
+        api_proxy = SimpleNamespace()
 
-        launch_kwargs: dict[str, Any] = kwargs
-        launch_kwargs.update(
-            {
-                "min_size": (400, 300),
-                "background_color": "#000000",
-                "frameless": True,
-                "easy_drag": False,
-                "js_api": None,
-                "hidden": True,
-            }
-        )
+        launch_kwargs: dict[str, Any] = {
+            "min_size": (400, 300),
+            "background_color": "#000000",
+            "frameless": True,
+            "easy_drag": False,
+            "hidden": True,
+            "js_api": api_proxy,
+            **kwargs,
+        }
 
         try:
-            # Create the window instance
-            window = webview.create_window(
-                url=url,
-                title=f"{addon}",
-                **launch_kwargs,
-            )
+            window = webview.create_window(url=url, title=addon, **launch_kwargs)
 
-            # Set our custom attributes on the window instance
-            window.__setattr__("addon", addon)
-            window.__setattr__("session_id", session_id)
-            window.__setattr__("window_id", window_id)
+            api_proxy.close = partial(window_api.close, window)
+            api_proxy.minimize = partial(window_api.minimize, window)
+            api_proxy.maximize = partial(window_api.maximize, window)
+            api_proxy.restore = partial(window_api.restore, window)
+            api_proxy.hide = partial(window_api.hide, window)
+            api_proxy.show = partial(window_api.show, window)
+            api_proxy.move = partial(window_api.move, window)
+            api_proxy.resize = partial(window_api.resize, window)
 
-            # Store in registry
             self._windows[window_id] = window
-            log.debug(
-                f"Created window '{window_id}' for session '{session_id}' by addon '{addon}'."
-            )
-            window.events.loaded += window.show
+
+            # We only need to know when the user closes the window to clean up our registry
+            window.events.closed += partial(self._on_closed, window_id)
+
+            log.debug(f"Created window '{window_id}' for addon '{addon}'.")
             return window_id
 
         except Exception as e:
             log.error(f"Error creating window: {e}")
-            return None
+            return ""
 
-    def list_windows(
-        self, session_id: str | None = None, addon: str | None = None
-    ) -> list[dict]:
-        """
-        List all active windows.
-        """
-        lookup_keys = {}
-        if session_id is not None:
-            lookup_keys["session_id"] = session_id
-        if addon is not None:
-            lookup_keys["addon"] = addon
-
-        result = []
-
-        for window_id, window in self._windows.items():
-            if (
-                all(getattr(window, key) == value for key, value in lookup_keys.items())
-                or all(
-                    window.__getattribute__(key) is None for key in lookup_keys.keys()
-                )
-                or all(window.__dict__.get(key) is None for key in lookup_keys.keys())
-                or not lookup_keys
-            ):
-                result.append(
-                    {
-                        "addon": window.addon,
-                        "session_id": window.session_id,
-                        "window_id": window_id,
-                    }
-                )
-
-        return result
-
-    def list_all(self) -> list[dict]:
-        """
-        List all active windows.
-
-        Returns:
-            List of window information dictionaries
-        """
-        return [
-            {
-                "addon": window.addon,
-                "session_id": window.session_id,
-                "window_id": window_id,
-            }
-            for window_id, window in self._windows.items()
-        ]
-
-    def list_by_session_id(self, session_id: str) -> list[dict]:
-        """
-        List all windows for a specific session_id.
-
-        Args:
-            session_id: The session identifier to filter by
-
-        Returns:
-            List of window information dictionaries
-        """
-        return [
-            {
-                "addon": window.addon,
-                "session_id": window.session_id,
-                "window_id": window_id,
-            }
-            for window_id, window in self._windows.items()
-            if window.session_id == session_id
-        ]
-
-    def list_by_addon(self, addon: str) -> list[dict]:
-        """
-        List all windows for a specific addon.
-        """
-        return [
-            {
-                "addon": window.addon,
-                "session_id": window.session_id,
-                "window_id": window_id,
-            }
-            for window_id, window in self._windows.items()
-            if window.addon == addon
-        ]
+    def list_windows(self) -> list[str]:
+        """List active window IDs."""
+        return list(self._windows.keys())
 
     def get_window(self, window_id: str) -> webview.Window | None:
-        """
-        Get a window instance by its window_id.
-
-        Args:
-            window_id: The window identifier
-
-        Returns:
-            The window instance, or None if not found
-        """
-        window = self._windows.get(window_id)
-        log.debug(f"Window '{window_id}' found.") if window else log.warning(
-            f"Window '{window_id}' not found."
-        )
-        return window
-
-    def invoke(self, window_id: str, method: str, *args, **kwargs) -> Any | None:
-        """
-        Invoke a method on a specific window.
-
-        Args:
-            window_id: The window identifier
-            method: The method name to invoke
-            *args: Arguments to pass to the method
-
-        Returns:
-            The result of the method call, or None if window not found
-        """
-        window = self.get_window(window_id)
-        if window and hasattr(window, method):
-            log.debug(f"Running method '{method}' on window '{window_id}'.")
-            return getattr(window, method)(*args, **kwargs)
-        else:
-            log.warning(f"Invoking method '{method}' failed.")
-            return None
+        """Get a window instance by its window_id."""
+        return self._windows.get(window_id)
 
     def close(self, window_id: str) -> str | None:
-        """
-        Close a specific window.
-
-        Args:
-            window_id: The window identifier to close
-
-        Returns:
-            The window_id if successfully closed, None otherwise
-        """
+        """Close a specific window."""
         window = self.get_window(window_id)
         if window:
             window.destroy()
-            del self._windows[window_id]
-            log.debug(f"Window '{window_id}' closed.")
             return window_id
-
-        log.warning(f"Closing window '{window_id}' failed: Window not found.")
         return None
 
     def run(self, *args: Any, **kwargs: Any) -> None:
-        """Run the webview server and the event loop.
-        Args:
-            *args: Additional arguments to pass to the webview.start method.
-            **kwargs: Additional keyword arguments to pass to the webview.start method.
-        Returns:
-            None
-        """
-        log.debug(f"Running webview.start with args: {args} and kwargs: {kwargs}.")
+        """Run the webview server and the event loop."""
+        log.debug(f"Running webview.start with debug={self.dev_mode}.")
         webview.start(*args, debug=self.dev_mode, **kwargs)
 
     def exit(self) -> None:
         """Destroy all windows to end event loop."""
         log.debug("Destroying all windows to end event loop.")
-        for window_id in self._windows.keys():
+        for window_id in list(self._windows.keys()):
             self.close(window_id)

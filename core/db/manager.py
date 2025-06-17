@@ -5,7 +5,7 @@ This module provides a central manager for all database operations,
 coordinating between different adapters for authentication and storage.
 """
 
-from typing import Any, Final, Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 from core.db.adapters import (
     AuthenticationError,
@@ -26,27 +26,14 @@ class QiDbManager:
     operations, delegating to the appropriate adapter.
     """
 
-    _instance = None
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self):
-        # Only initialize once
-        if hasattr(self, "_initialized") and self._initialized:
-            return
-
         self._auth_adapter: Optional[QiAuthAdapter] = None
         self._file_adapter: Optional[QiFileDbAdapter] = None
 
         # Current user and token
         self._current_user: dict[str, Any] = {}
         self._current_token: Optional[str] = None
-
-        self._initialized = True
-        log.info("QiDbManager initialized")
+        log.info("QiDbManager created")
 
     # -------------------- Adapter Management -------------------- #
 
@@ -377,7 +364,3 @@ class QiDbManager:
         """
         file_adapter = self.get_file_adapter()
         return await file_adapter.delete(key)
-
-
-# Initialize the singleton instance
-qi_db_manager: Final[QiDbManager] = QiDbManager()

@@ -7,7 +7,7 @@ from core.addon.manager import QiAddonManager
 from core.constants import BASE_PATH
 from core.db.bus_handlers import register_db_handlers
 from core.db.file_db import JsonFileDbAdapter
-from core.db.manager import qi_db_manager
+from core.db.manager import QiDbManager
 from core.db.mock_auth import MockAuthAdapter
 from core.gui.window_manager import QiWindowManager
 from core.launch_config import qi_launch_config
@@ -19,7 +19,7 @@ from hub.lib.runners import run_server
 log = get_logger(__name__)
 
 
-def initialize_db_manager():
+def initialize_db_manager(db_manager: QiDbManager):
     """
     Initialize the database manager with mock adapters.
     """
@@ -32,11 +32,11 @@ def initialize_db_manager():
     file_adapter = JsonFileDbAdapter(str(data_dir))
 
     # Set adapters on the manager
-    qi_db_manager.set_auth_adapter(auth_adapter)
-    qi_db_manager.set_file_adapter(file_adapter)
+    db_manager.set_auth_adapter(auth_adapter)
+    db_manager.set_file_adapter(file_adapter)
 
     # Register message bus handlers
-    register_db_handlers()
+    register_db_handlers(db_manager)
 
     log.info("Database manager initialized with mock adapters")
 
@@ -99,7 +99,8 @@ def qi_gui_launcher():
     loop = asyncio.get_event_loop()
 
     # Initialize the database manager
-    initialize_db_manager()
+    db_manager = QiDbManager()
+    initialize_db_manager(db_manager)
 
     # Initialize the addon manager
     try:
@@ -130,19 +131,17 @@ def qi_gui_launcher():
         qi_launch_config.dev_mode,
     )
 
-    # TODO: Open login window or main UI
-    # icon_path = os.path.join(
-    #     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    #     "static",
-    #     "qi_512.png",
-    # ).replace("\\", "/")
-    # window_manager.create_window(addon="login", session_id="login-session")
-    # window_manager.run(
-    #     icon=icon_path,
-    # )
+    icon_path = os.path.join(
+        BASE_PATH,
+        "resources",
+        "qi-icons",
+        "qi_512.png",
+    ).replace("\\", "/")
 
-    # For now, just wait for the server to finish
-    server_thread.join()
+    window_manager.create_window(addon="addon-skeleton", session_id="main-session")
+    window_manager.run(
+        icon=icon_path,
+    )
 
     # Clean shutdown
     addon_manager.close_all()
