@@ -1,54 +1,59 @@
 """A module of simple functions to be exposed to the JavaScript frontend."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
+from webview import Window
 from webview.window import FixPoint
 
-if TYPE_CHECKING:
-    import webview
 
-
-def close(window: webview.Window) -> None:
+def close(window: Window) -> None:
     """Close the window."""
     window.destroy()
 
 
-def minimize(window: webview.Window) -> None:
+def minimize(window: Window) -> None:
     """Minimize the window."""
-    window.minimize()
+    if not window.minimized:
+        window.minimize()
+        window.minimized = True
+    else:
+        window.restore()
+        window.minimized = False
 
 
-def maximize(window: webview.Window) -> None:
+def maximize(window: Window) -> None:
     """Maximize or restore the window."""
     if not window.maximized:
         window.maximize()
+        window.maximized = True
     else:
         window.restore()
+        window.maximized = False
 
 
-def restore(window: webview.Window) -> None:
+def restore(window: Window) -> None:
     """Restore the window."""
     window.restore()
+    window.minimized = False
+    window.maximized = False
 
 
-def hide(window: webview.Window) -> None:
+def hide(window: Window) -> None:
     """Hide the window."""
     window.hide()
+    window.hidden = True
 
 
-def show(window: webview.Window) -> None:
+def show(window: Window) -> None:
     """Show the window."""
     window.show()
+    window.hidden = False
 
 
-def move(window: webview.Window, x: int, y: int) -> None:
+def move(window: Window, x: int, y: int) -> None:
     """Move the window."""
     window.move(x, y)
 
 
-def resize(window: webview.Window, width: int, height: int, edge: str) -> None:
+def resize(window: Window, width: int, height: int, edge: str) -> None:
     """Resize the window from a given edge."""
     anchors = FixPoint.WEST | FixPoint.NORTH
     match edge:

@@ -1,8 +1,8 @@
 import asyncio
 import os
-import threading
 from pathlib import Path
 
+from app.runners import run_server
 from core.addon.manager import QiAddonManager
 from core.constants import BASE_PATH
 from core.db.bus_handlers import register_db_handlers
@@ -14,7 +14,6 @@ from core.launch_config import qi_launch_config
 from core.logger import get_logger
 from core.settings.bus_handlers import register_settings_handlers
 from core.settings.manager import QiSettingsManager
-from hub.lib.runners import run_server
 
 log = get_logger(__name__)
 
@@ -45,8 +44,8 @@ def initialize_addon_manager():
     """
     Initialize the addon manager and load addons.
     """
-    addon_manager = QiAddonManager(qi_launch_config.addon_paths)
-    addon_manager.discover_addons()
+    addon_manager = QiAddonManager()
+    addon_manager.discover_addons(qi_launch_config.addon_paths)
 
     # Phase 1: Load provider addons (auth, db)
     try:
@@ -83,7 +82,7 @@ async def initialize_settings_manager(addon_manager: QiAddonManager):
     return settings_manager
 
 
-def bind_window_manager(window_manager):
+def bind_window_manager(window_manager: QiWindowManager):
     """
     Register window manager message bus handlers.
     """
@@ -111,9 +110,7 @@ def qi_gui_launcher():
 
     # Initialize the settings manager
     try:
-        settings_manager = loop.run_until_complete(
-            initialize_settings_manager(addon_manager)
-        )
+        loop.run_until_complete(initialize_settings_manager(addon_manager))
     except Exception as e:
         log.critical(f"Failed to initialize settings manager: {e}")
         return
@@ -123,7 +120,7 @@ def qi_gui_launcher():
     bind_window_manager(window_manager)
 
     # Start the server
-    server_thread: threading.Thread = run_server(
+    run_server(
         qi_launch_config.host,
         qi_launch_config.port,
         qi_launch_config.ssl_key_path,

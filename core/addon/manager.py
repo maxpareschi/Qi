@@ -19,8 +19,8 @@ class QiAddonManager:
     Manages the discovery, loading, and lifecycle of all Qi addons.
     """
 
-    def __init__(self, addon_paths: list[str]):
-        self._addon_paths = addon_paths
+    def __init__(self):
+        self._addon_paths: list[str] = []
         self._discovered_addons: dict[str, Path] = {}
         self._loaded_addons: dict[str, "QiAddonBase"] = {}
         self._providers: dict["AddonRole", "QiAddonBase"] = {}
@@ -31,8 +31,9 @@ class QiAddonManager:
         # Track addons with non-fatal registration errors
         self._addons_with_errors: dict[str, Exception] = {}
 
-    def discover_addons(self):
+    def discover_addons(self, addon_paths: list[str]):
         """Scans the configured addon paths and populates the discovery registry."""
+        self._addon_paths = addon_paths
         log.info(f"Discovering addons from paths: {self._addon_paths}")
         self._discovered_addons = discover_addon_dirs(self._addon_paths)
         keys = self._discovered_addons.keys()

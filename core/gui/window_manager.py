@@ -1,12 +1,12 @@
 import os
 import uuid
 from functools import partial
-from types import SimpleNamespace
 from typing import Any
 
 import webview
 
 from core.gui import window_api
+from core.launch_config import qi_launch_config
 from core.logger import get_logger
 
 log = get_logger(__name__)
@@ -20,7 +20,6 @@ class QiWindowManager:
 
     def __init__(self):
         self._windows: dict[str, webview.Window] = {}
-        self.dev_mode = os.getenv("QI_DEV_MODE", "0") == "1"
 
     def _on_closed(self, window_id: str):
         log.debug(f"Window '{window_id}' closed by user, removing from registry.")
@@ -46,29 +45,28 @@ class QiWindowManager:
         protocol = "https" if use_ssl else "http"
         url = f"{protocol}://{server_address}:{server_port}/{addon}?session_id={session_id}&window_id={window_id}"
 
-        api_proxy = SimpleNamespace()
-
         launch_kwargs: dict[str, Any] = {
             "min_size": (400, 300),
             "background_color": "#000000",
             "frameless": True,
             "easy_drag": False,
             "hidden": True,
-            "js_api": api_proxy,
+            "js_api": None,
             **kwargs,
         }
 
         try:
             window = webview.create_window(url=url, title=addon, **launch_kwargs)
 
-            api_proxy.close = partial(window_api.close, window)
-            api_proxy.minimize = partial(window_api.minimize, window)
-            api_proxy.maximize = partial(window_api.maximize, window)
-            api_proxy.restore = partial(window_api.restore, window)
-            api_proxy.hide = partial(window_api.hide, window)
-            api_proxy.show = partial(window_api.show, window)
-            api_proxy.move = partial(window_api.move, window)
-            api_proxy.resize = partial(window_api.resize, window)
+            # Expose API functions to the window's JS context
+            window.expose(partial(window_api.close, window))
+            window.expose(partial(window_api.minimize, window))
+            window.expose(partial(window_api.maximize, window))
+            window.expose(partial(window_api.restore, window))
+            window.expose(partial(window_api.hide, window))
+            window.expose(partial(window_api.show, window))
+            window.expose(partial(window_api.move, window))
+            window.expose(partial(window_api.resize, window))
 
             self._windows[window_id] = window
 
@@ -100,8 +98,8 @@ class QiWindowManager:
 
     def run(self, *args: Any, **kwargs: Any) -> None:
         """Run the webview server and the event loop."""
-        log.debug(f"Running webview.start with debug={self.dev_mode}.")
-        webview.start(*args, debug=self.dev_mode, **kwargs)
+        log.debug(f"Running webview.start with debug={qi_launch_config.dev_mode}.")
+        webview.start(*args, debug=qi_launch_config.dev_mode, **kwargs)
 
     def exit(self) -> None:
         """Destroy all windows to end event loop."""
