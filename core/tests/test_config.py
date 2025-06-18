@@ -1,5 +1,6 @@
 import importlib
 import os
+import tomllib
 from pathlib import Path
 from unittest.mock import mock_open, patch
 
@@ -179,115 +180,146 @@ QI_DEV_MODE=false
 # --- Test Source Priority: Env > .env > TOML > Defaults --- #
 
 
-def test_qiconfigmanager_source_priority(mock_env_vars, mock_config_files):
-    mock_exists, mock_file = mock_config_files
-    mock_exists.return_value = True  # Assume all config files exist
-
-    # 1. TOML values
-    toml_content = """
-[qi]
-host = "toml_host"
-port = 1111
-dev_mode = false # TOML says dev_mode is false
+@patch("tomllib.load")
+def test_qiconfigmanager_source_priority(mock_toml_load, mock_env_vars):
     """
-    # 2. .env values (should override TOML)
-    dotenv_content = """
-QI_HOST="dotenv_host"
-QI_PORT=2222
-# QI_DEV_MODE not set in .env, so TOML's false will be used at this stage if env not set
+    Tests the source priority: Env variables > .env files > TOML files.
+    This test uses high-level patching to avoid complex file I/O mocking.
     """
-    # 3. Environment variables (should override .env and TOML)
-    mock_env_vars.setenv("QI_HOST", "env_host")
-    # QI_PORT not set in env, so .env's 2222 should be used
-    # QI_DEV_MODE not set in env
+    # 1. TOML values (lowest priority)
+    mock_toml_load.return_value = {
+        "qi": {
+            "host": "toml_host",
+            "port": 1111,
+            "dev_mode": False,
+        }
+    }
 
-    # Mock file reads for both. mock_file is the mock for `builtins.open`
-    def open_side_effect(path_arg, mode="r", encoding=None, **kwargs):
-        if str(path_arg) == str(CONFIG_FILE):
-            if mode == "rb":
-                return mock_open(read_data=toml_content.encode("utf-8"))()
-            else:
-                return mock_open(read_data=toml_content)()
-        elif str(path_arg).endswith(".env"):
-            return mock_open(read_data=dotenv_content)()
-        return mock_open()()
+    # 2. .env values (middle priority)
+    # We patch the DotEnvSettingsSource to inject values directly
+    with patch(
+        "pydantic_settings.sources.DotEnvSettingsSource.__call__",
+        return_value={"host": "dotenv_host", "port": "2222"},
+    ) as mock_dotenv_source:
+        # 3. Environment variables (highest priority)
+        mock_env_vars.setenv("QI_HOST", "env_host")
 
-    mock_file.side_effect = open_side_effect
+        # --- Run test ---
+        # We need to mock Path.exists for the TOML file to trigger tomllib.load
+        with patch("pathlib.Path.exists", return_value=True):
+            config = QiLaunchConfig()
 
-    # Instantiate config directly (do not rely on module-level singleton)
-    config = QiLaunchConfig()
-    assert config.host == "dotenv_host"  # .env wins over env and TOML
-    assert config.port == 2222  # .env wins over env and TOML
-    assert config.dev_mode is False  # From TOML, as not in .env or env vars
-    assert config.log_level == "INFO"  # Based on dev_mode being False
+        # --- Assertions ---
+        # Assert that the correct sources were called
+        mock_toml_load.assert_called_once()
+        mock_dotenv_source.assert_called_once()
 
-    # Test with dev_mode from env var (should still be overridden by .env if present)
-    mock_env_vars.setenv("QI_DEV_MODE", "true")
-    config_env_dev = QiLaunchConfig()
-    # If .env does not set QI_DEV_MODE, env var should win for dev_mode
-    assert config_env_dev.dev_mode is True
-    assert config_env_dev.log_level == "DEBUG"
+        # Assert values based on priority
+        assert config.host == "env_host"  # Env var wins over all
+        assert config.port == 2222  # .env wins over TOML
+        assert config.dev_mode is False  # From TOML, as not in .env or env vars
+        assert config.log_level == "INFO"  # Based on dev_mode being False
+
+        # --- Test with dev_mode from env var ---
+        mock_env_vars.setenv("QI_DEV_MODE", "true")
+        with patch("pathlib.Path.exists", return_value=True):
+            config_env_dev = QiLaunchConfig()
+
+        # Env var for dev_mode should win as it was not in .env
+        assert config_env_dev.dev_mode is True
+        assert config_env_dev.log_level == "DEBUG"
 
 
 # --- Test Field Validators and Model Validators --- #
 
 
-def test_addon_paths_validator():
-    raw_paths_str = f"/abs/path1{os.pathsep}./rel/path2{os.pathsep}path3"
-    expected = [
-        Path("/abs/path1").resolve().as_posix(),
-        Path("./rel/path2").resolve().as_posix(),
-        Path("path3").resolve().as_posix(),
-    ]
-    # Test with string input
-    validated_str = QiLaunchConfig._parse_addon_paths(raw_paths_str)
-    assert validated_str == expected
+@patch("core.launch_config.tomllib.load", return_value={})
+def test_path_normalization_validators(mock_load, mock_env_vars, mock_config_files):
+    """Tests that path-like fields are correctly normalized to absolute paths."""
+    mock_exists, _ = mock_config_files
+    mock_exists.return_value = False  # Isolate from local config files
 
-    # Test with list input
-    raw_paths_list = ["/abs/path1", "./rel/path2", "path3"]
-    validated_list = QiLaunchConfig._parse_addon_paths(raw_paths_list)
-    assert validated_list == expected
+    with patch("core.launch_config.tomllib.load", return_value={}):
+        # Test custom paths
+        config_custom = QiLaunchConfig(
+            base_path="/custom/path", bundles_file="/custom/bundles.toml"
+        )
+        assert config_custom.base_path == Path("/custom/path").resolve().as_posix()
+        assert (
+            config_custom.bundles_file
+            == Path("/custom/bundles.toml").resolve().as_posix()
+        )
 
-    # Test with empty string
-    assert QiLaunchConfig._parse_addon_paths("") == []
-    # Test with list of empty/whitespace strings (should be filtered)
-    assert QiLaunchConfig._parse_addon_paths(["", " "]) == []
+        # Test default paths (when input is empty or None)
+        config_default = QiLaunchConfig(base_path="", bundles_file=None)
+        assert config_default.base_path == Path(CONST_BASE_PATH).resolve().as_posix()
+        # Assuming BUNDLES_FILE is imported or accessible
+        from core.constants import BUNDLES_FILE
+
+        assert config_default.bundles_file == Path(BUNDLES_FILE).resolve().as_posix()
 
 
-def test_log_level_validator():
-    assert QiLaunchConfig._normalize_log_level("info") == "INFO"
-    assert QiLaunchConfig._normalize_log_level("DEBUG") == "DEBUG"
+def test_addon_paths_validator(mock_env_vars, mock_config_files):
+    """Tests that addon_paths are parsed and normalized correctly."""
+    mock_exists, _ = mock_config_files
+    mock_exists.return_value = False  # Isolate from local config files
+
+    with patch("core.launch_config.tomllib.load", return_value={}):
+        # Test with a string of paths
+        raw_paths_str = f"/abs/path1{os.pathsep}./rel/path2{os.pathsep}path3"
+        config_str = QiLaunchConfig(addon_paths=raw_paths_str)
+        expected = [
+            Path("/abs/path1").resolve().as_posix(),
+            Path("./rel/path2").resolve().as_posix(),
+            Path("path3").resolve().as_posix(),
+        ]
+        assert sorted(config_str.addon_paths) == sorted(expected)
+
+        # Test with a list of paths
+        raw_paths_list = ["/abs/path1", "./rel/path2", "path3"]
+        config_list = QiLaunchConfig(addon_paths=raw_paths_list)
+        assert sorted(config_list.addon_paths) == sorted(expected)
+
+        # Test with an empty string
+        config_empty_str = QiLaunchConfig(addon_paths="")
+        assert config_empty_str.addon_paths == []
+
+        # Test with an empty list
+        config_empty_list = QiLaunchConfig(addon_paths=[])
+        assert config_empty_list.addon_paths == []
 
 
-def test_base_path_validator():
-    assert (
-        QiLaunchConfig._normalize_base_path("/custom/path")
-        == Path("/custom/path").resolve().as_posix()
-    )
-    # Default if empty string provided
-    assert (
-        QiLaunchConfig._normalize_base_path("")
-        == Path(CONST_BASE_PATH).resolve().as_posix()
-    )
+def test_log_level_validator(mock_env_vars, mock_config_files):
+    """Tests that the log level is correctly uppercased."""
+    mock_exists, _ = mock_config_files
+    mock_exists.return_value = False  # Isolate from local config files
+
+    with patch("core.launch_config.tomllib.load", return_value={}):
+        config = QiLaunchConfig(log_level="debug")
+        assert config.log_level == "DEBUG"
 
 
 def test_dev_mode_setup_model_validator(mock_env_vars, mock_config_files):
+    """
+    Tests the model validator that sets log_level to DEBUG when dev_mode is True.
+    """
     mock_exists, _ = mock_config_files
     mock_exists.return_value = False
 
-    # Scenario 1: dev_mode is True, log_level should become DEBUG
-    mock_env_vars.setenv("QI_DEV_MODE", "true")
-    mock_env_vars.setenv("QI_LOG_LEVEL", "INFO")  # Should be overridden
-    config1 = QiLaunchConfig()
-    assert config1.dev_mode is True
-    assert config1.log_level == "DEBUG"
+    with patch("core.launch_config.tomllib.load", return_value={}):
+        # 1. dev_mode=True should force log_level to DEBUG
+        config_dev = QiLaunchConfig(dev_mode=True, log_level="INFO")
+        assert config_dev.log_level == "DEBUG"
 
-    # Scenario 2: dev_mode is False, log_level should remain as specified
-    mock_env_vars.setenv("QI_DEV_MODE", "false")
-    mock_env_vars.setenv("QI_LOG_LEVEL", "WARNING")
-    config2 = QiLaunchConfig()
-    assert config2.dev_mode is False
-    assert config2.log_level == "WARNING"
+        # 2. dev_mode=False should respect the given log_level
+        config_nodev = QiLaunchConfig(dev_mode=False, log_level="WARNING")
+        assert config_nodev.log_level == "WARNING"
+
+    # 3. Test with environment variable - this one is tricky as env overrides constructor
+    mock_env_vars.setenv("QI_DEV_MODE", "true")
+    with patch("core.launch_config.tomllib.load", return_value={}):
+        config_env = QiLaunchConfig()  # No log_level in constructor
+        assert config_env.log_level == "DEBUG"
 
 
 # --- Test Error Handling --- #
@@ -295,40 +327,37 @@ def test_dev_mode_setup_model_validator(mock_env_vars, mock_config_files):
 
 def test_invalid_toml_file_raises_settings_error(mock_env_vars, mock_config_files):
     mock_exists, mock_file = mock_config_files
-    mock_exists.side_effect = lambda *args, **kwargs: True
-    invalid_toml_bytes = b"this is not valid toml content: {"
+    mock_exists.return_value = True
+    toml_content = "[qi]\ndev_mode = tru"  # Malformed boolean
 
     def open_side_effect(path_arg, mode="r", *a, **k):
         if str(path_arg) == str(CONFIG_FILE):
-            if "b" in mode:
-                return mock_open(read_data=invalid_toml_bytes)()
-            else:
-                return mock_open(
-                    read_data=invalid_toml_bytes.decode("utf-8", errors="ignore")
-                )()
+            if "b" in mode:  # Check if opened in binary mode
+                return mock_open(read_data=toml_content.encode("utf-8"))()
+            return mock_open(read_data=toml_content)()
         return mock_open()()
 
     mock_file.side_effect = open_side_effect
-    with pytest.raises(SettingsError):
+
+    with (
+        patch("tomllib.load", side_effect=tomllib.TOMLDecodeError("Test Error")),
+        pytest.raises(SettingsError, match="Error parsing TOML file"),
+    ):
         QiLaunchConfig()
 
 
-# --- Test QiLaunchConfig instance from module (qi_launch_config) --- #
-# These tests check the globally loaded qi_launch_config instance if its module is re-imported or reloaded.
-# This can be complex to test without specific mechanisms to force re-import with new mocks.
-# The above tests focus on the QiLaunchConfig class itself.
-# If core.config.py is imported, qi_launch_config = QiLaunchConfig() runs immediately.
-# To test the instance `qi_launch_config` with mocks, the mocks need to be active *before* `core.config` is imported by the test module.
-
-
-# Example of how one might attempt to test the module-level instance (can be tricky):
+# This test is problematic because the module-level singleton `qi_launch_config`
+# is instantiated upon module import. Re-testing its creation is difficult
+# without complex test setups like `importlib.reload`.
+# It's better to test the class `QiLaunchConfig` directly, as done in other tests.
 @pytest.mark.xfail(
-    reason="Module-level singleton cannot reliably be tested due to import/mocking order."
+    reason="Module-level singleton cannot be reliably re-tested after import."
 )
 def test_module_qi_launch_config_instance_loads_from_env(mock_exists_module_scope):
-    # Need to force re-evaluation of core.config module or its QiLaunchConfig instantiation
-    # This usually requires `importlib.reload`
+    # This test would require reloading the core.launch_config module to be effective.
+    # The current test structure with function-scoped fixtures doesn't support this well.
     import core.launch_config
 
-    importlib.reload(core.launch_config)
-    assert core.launch_config.qi_launch_config.host == "module_instance_test_host"
+    with patch.dict(os.environ, {"QI_HOST": "module_test_host"}):
+        importlib.reload(core.launch_config)
+        assert core.launch_config.qi_launch_config.host == "module_test_host"

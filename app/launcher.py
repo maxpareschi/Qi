@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.runners import run_server
 from core.addon.manager import QiAddonManager
+from core.bundle.manager import qi_bundle_manager
 from core.constants import BASE_PATH
 from core.db.bus_handlers import register_db_handlers
 from core.db.file_db import JsonFileDbAdapter
@@ -16,6 +17,22 @@ from core.settings.bus_handlers import register_settings_handlers
 from core.settings.manager import QiSettingsManager
 
 log = get_logger(__name__)
+
+
+def apply_bundle_env():
+    """
+    Applies the environment variables from the active bundle to the current process.
+    """
+    active_bundle = qi_bundle_manager.get_active_bundle()
+    bundle_env = active_bundle.env
+    if not bundle_env:
+        log.info("No environment variables to apply for the active bundle.")
+        return
+
+    log.info(
+        f"Applying environment variables for bundle '{active_bundle.name}': {bundle_env}"
+    )
+    os.environ.update(bundle_env)
 
 
 def initialize_db_manager(db_manager: QiDbManager):
@@ -96,6 +113,9 @@ def qi_gui_launcher():
     """
     # Create an asyncio event loop to run async functions
     loop = asyncio.get_event_loop()
+
+    # Apply the active bundle's environment
+    apply_bundle_env()
 
     # Initialize the database manager
     db_manager = QiDbManager()

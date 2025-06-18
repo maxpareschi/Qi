@@ -219,108 +219,43 @@ class QiDbManager:
 
     # -------------------- Settings Management -------------------- #
 
-    async def get_settings(
-        self, scope: str, addon: Optional[str] = None
-    ) -> dict[str, Any]:
+    async def get_settings(self, scope: str) -> dict[str, Any]:
         """
-        Retrieve settings for a specific scope and optional addon.
+        Retrieve settings for a specific scope.
 
         Args:
             scope: The settings scope ('bundle', 'project', 'user')
-            addon: Optional addon name to filter by
 
         Returns:
-            dictionary of settings
+            A dictionary of settings.
 
         Raises:
-            RuntimeError: If no file adapter is set
-            ValueError: If scope is invalid
+            RuntimeError: If no file adapter is set.
+            ValueError: If the scope is invalid.
         """
         file_adapter = self.get_file_adapter()
-        return await file_adapter.get_settings(scope, addon)
+        return await file_adapter.get_settings(scope)
 
-    async def save_settings(
-        self, scope: str, settings: dict[str, Any], addon: Optional[str] = None
-    ) -> None:
+    async def save_settings(self, scope: str, settings: dict[str, Any]) -> None:
         """
-        Save settings for a specific scope and optional addon.
+        Save settings for a specific scope.
 
         Args:
-            scope: The settings scope ('bundle', 'project', 'user')
-            settings: dictionary of settings to save
-            addon: Optional addon name to filter by
+            scope: The settings scope ('bundle', 'project', 'user').
+            settings: A dictionary of settings to save.
 
         Raises:
-            RuntimeError: If no file adapter is set
-            ValueError: If scope is invalid
-            StorageError: If saving fails
+            RuntimeError: If no file adapter is set.
+            ValueError: If the scope is invalid.
         """
         file_adapter = self.get_file_adapter()
-        await file_adapter.save_settings(scope, settings, addon)
+        await file_adapter.save_settings(scope, settings)
 
-    # -------------------- Bundle Management -------------------- #
-
-    async def list_bundles(self) -> list[dict[str, Any]]:
-        """
-        list all available bundles.
-
-        Returns:
-            list of bundle dictionaries
-
-        Raises:
-            RuntimeError: If no file adapter is set
-        """
-        file_adapter = self.get_file_adapter()
-        return await file_adapter.list_bundles()
-
-    async def get_bundle(self, bundle_name: str) -> dict[str, Any] | None:
-        """
-        Get information about a specific bundle.
-
-        Args:
-            bundle_name: The name of the bundle
-
-        Returns:
-            Bundle information or None if not found
-
-        Raises:
-            RuntimeError: If no file adapter is set
-        """
-        file_adapter = self.get_file_adapter()
-        return await file_adapter.get_bundle(bundle_name)
-
-    async def get_active_bundle(self) -> str:
-        """
-        Get the name of the currently active bundle.
-
-        Returns:
-            The name of the active bundle
-
-        Raises:
-            RuntimeError: If no file adapter is set
-        """
-        file_adapter = self.get_file_adapter()
-        return await file_adapter.get_active_bundle()
-
-    async def set_active_bundle(self, bundle_name: str) -> None:
-        """
-        Set the active bundle.
-
-        Args:
-            bundle_name: The name of the bundle to activate
-
-        Raises:
-            RuntimeError: If no file adapter is set
-            ValueError: If bundle does not exist
-        """
-        file_adapter = self.get_file_adapter()
-        await file_adapter.set_active_bundle(bundle_name)
-
-    # -------------------- General Storage -------------------- #
+    # -------------------- Generic Data Storage -------------------- #
 
     async def get_data(self, key: str) -> dict[str, Any] | None:
         """
-        Retrieve data by key.
+        Retrieve a generic JSON data object by its key.
 
         Args:
             key: The unique identifier for the data
@@ -336,7 +271,7 @@ class QiDbManager:
 
     async def save_data(self, key: str, value: dict[str, Any]) -> None:
         """
-        Store data by key.
+        Save a generic JSON data object by its key.
 
         Args:
             key: The unique identifier for the data
@@ -351,7 +286,7 @@ class QiDbManager:
 
     async def delete_data(self, key: str) -> bool:
         """
-        Delete data by key.
+        Delete a generic JSON data object by its key.
 
         Args:
             key: The unique identifier for the data
@@ -364,3 +299,9 @@ class QiDbManager:
         """
         file_adapter = self.get_file_adapter()
         return await file_adapter.delete(key)
+
+
+# Create a singleton instance of the manager for easy access
+# across the application. This approach is suitable for a core
+# service that needs to maintain a consistent state.
+qi_db_manager = QiDbManager()

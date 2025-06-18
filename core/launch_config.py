@@ -3,9 +3,9 @@
 import os
 import tomllib
 from pathlib import Path
-from typing import Any, Self, Type
+from typing import Any, Final, Self, Type
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     InitSettingsSource,
@@ -14,7 +14,14 @@ from pydantic_settings import (
     SettingsError,
 )
 
-from core.constants import BASE_PATH, CONFIG_FILE, DOTENV_FILE
+from core.constants import (
+    BASE_PATH,
+    BUNDLE_FALLBACK_ORDER,
+    BUNDLES_FILE,
+    CONFIG_FILE,
+    DEFAULT_BUNDLE_NAME,
+    DOTENV_FILE,
+)
 
 
 class QiLaunchConfig(BaseSettings):
@@ -46,20 +53,30 @@ class QiLaunchConfig(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         toml_data: dict[str, Any] = {}
-        if Path(CONFIG_FILE).exists():
+        config_path = Path(CONFIG_FILE)
+        if config_path.exists():
             try:
-                with open(CONFIG_FILE, "rb") as f:
+                with open(config_path, "rb") as f:
                     toml_data = tomllib.load(f).get("qi", {})
             except tomllib.TOMLDecodeError as e:
                 raise SettingsError(f"Error parsing TOML file: {e}")
+            except OSError as e:
+                # Using print because logger is not available here to avoid circular import.
+                print(
+                    f"WARNING: Could not read config file at '{config_path}': {e}. Proceeding with defaults."
+                )
 
-        init_settings.init_kwargs = toml_data
+        # Values from TOML file should override constructor arguments.
+        # We start with constructor args and then update with TOML data.
+        merged_init_data = init_settings.init_kwargs.copy()
+        merged_init_data.update(toml_data)
+        init_settings.init_kwargs = merged_init_data
+
         return (
-            dotenv_settings,  # Highest priority
-            env_settings,  # Next
-            init_settings,  # Then TOML data passed via init
-            file_secret_settings,  # Then secrets
-            # settings_cls,  # Then pydantic settings class
+            env_settings,  # Highest priority: environment variables
+            dotenv_settings,  # Next: .env file
+            init_settings,  # Then: constructor args > TOML file
+            file_secret_settings,  # Then: secrets
         )
 
     # Core flags
@@ -77,6 +94,15 @@ class QiLaunchConfig(BaseSettings):
 
     # Base path
     base_path: str = Field(default=BASE_PATH)
+
+    # Path to the bundles configuration file
+    bundles_file: str = Field(default=BUNDLES_FILE)
+
+    # Default bundle settings
+    default_bundle_name: str = Field(default=DEFAULT_BUNDLE_NAME)
+    bundle_fallback_order: list[str] = Field(
+        default_factory=lambda: BUNDLE_FALLBACK_ORDER
+    )
 
     # Addon discovery: always a list of absolute paths
     addon_paths: list[str] | str = Field(default="")
@@ -120,13 +146,30 @@ class QiLaunchConfig(BaseSettings):
         """
         return v.upper()
 
-    @field_validator("base_path", mode="before")
+    @field_validator("base_path", "bundles_file", mode="before")
     @classmethod
-    def _normalize_base_path(cls, v: str) -> str:
+    def _normalize_path(cls, v: str, info: "ValidationInfo") -> str:
         """
-        Normalize the base path to an absolute path.
+        Normalize a path to an absolute path.
+        If the path doesn't exist, it uses the absolute path without resolving symlinks.
+        Relative paths are resolved from the project's BASE_PATH.
         """
-        return Path(v or BASE_PATH).resolve().as_posix()
+        if not v:
+            default_map = {"base_path": BASE_PATH, "bundles_file": BUNDLES_FILE}
+            v = default_map.get(info.field_name, "")
+
+        path_obj = Path(v)
+
+        # If the path is not absolute, make it relative to the project root
+        if not path_obj.is_absolute():
+            path_obj = Path(BASE_PATH) / path_obj
+
+        try:
+            # First, attempt to get a fully resolved, existing path
+            return path_obj.resolve(strict=True).as_posix()
+        except (FileNotFoundError, RuntimeError):
+            # If resolve fails, fall back to the absolute path without checking existence
+            return path_obj.absolute().as_posix()
 
     @model_validator(mode="after")
     def _dev_mode_setup(self) -> Self:
@@ -140,7 +183,7 @@ class QiLaunchConfig(BaseSettings):
 
 
 try:
-    qi_launch_config: QiLaunchConfig = QiLaunchConfig()
+    qi_launch_config: Final[QiLaunchConfig] = QiLaunchConfig()
 
 except SettingsError as e:
     raise SettingsError(

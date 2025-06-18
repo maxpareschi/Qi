@@ -3,11 +3,35 @@ from typing import Any, Optional
 from deepmerge import always_merger
 
 from core.addon.manager import QiAddonManager
+from core.bundle.manager import qi_bundle_manager
 from core.db.manager import qi_db_manager
 from core.logger import get_logger
 from core.settings.base import QiGroup, QiSettings
 
 log = get_logger(__name__)
+
+
+def _set_nested_value(data: dict, path: str, value: Any) -> None:
+    """Sets a value in a nested dictionary using a dot-separated path."""
+    if not path or not isinstance(path, str):
+        raise ValueError("Path must be a non-empty string")
+
+    keys = path.split(".")
+    current_level = data
+    for i, key in enumerate(keys[:-1]):
+        current_level = current_level.setdefault(key, {})
+        if not isinstance(current_level, dict):
+            log.warning(
+                f"Cannot set nested value for path '{path}'. Part '{key}' is not a dictionary."
+            )
+            # Overwrite the non-dict part to proceed
+            current_level = {}
+            if i > 0:
+                parent_level = data
+                for p_key in keys[:i]:
+                    parent_level = parent_level[p_key]
+                parent_level[key] = current_level
+    current_level[keys[-1]] = value
 
 
 class QiSettingsManager:
@@ -17,6 +41,7 @@ class QiSettingsManager:
 
     def __init__(self, addon_manager: QiAddonManager):
         self._addon_manager = addon_manager
+        self._bundle_manager = qi_bundle_manager
         self._db_manager = qi_db_manager
         self._root_settings = QiSettings(title="Qi Settings")
         self._is_built = False
@@ -57,16 +82,26 @@ class QiSettingsManager:
         final_overrides = {}
 
         try:
-            # 1. Load bundle-level overrides
-            active_bundle = await self._db_manager.get_active_bundle()
-            if active_bundle:
-                bundle_overrides = await self._db_manager.get_settings("bundle")
-                if bundle_overrides:
-                    log.info(f"Applying '{active_bundle}' bundle overrides.")
-                    always_merger.merge(final_overrides, bundle_overrides)
+            # 1. Load bundle-level overrides for the active bundle
+            active_bundle_name = self._bundle_manager.get_active_bundle().name
+            all_bundle_overrides = await self._db_manager.get_settings("bundle")
+
+            if active_bundle_name in all_bundle_overrides:
+                bundle_overrides = all_bundle_overrides[active_bundle_name]
+                log.info(f"Applying '{active_bundle_name}' bundle overrides.")
+                always_merger.merge(final_overrides, bundle_overrides)
 
             # TODO: Load and merge project-level overrides
+            # active_project_name = "some_project"
+            # all_project_overrides = await self._db_manager.get_settings("project")
+            # if active_project_name in all_project_overrides:
+            #     always_merger.merge(final_overrides, all_project_overrides[active_project_name])
+
             # TODO: Load and merge user-level overrides
+            # current_user_id = "some_user"
+            # all_user_overrides = await self._db_manager.get_settings("user")
+            # if current_user_id in all_user_overrides:
+            #     always_merger.merge(final_overrides, all_user_overrides[current_user_id])
 
         except Exception:
             log.exception("Failed to load settings overrides from database.")
@@ -182,65 +217,39 @@ class QiSettingsManager:
         if scope not in ("bundle", "project", "user"):
             raise ValueError(f"Invalid settings scope: {scope}")
 
-        if not path:
-            raise ValueError("Path cannot be empty")
+        if not path or not isinstance(path, str):
+            raise ValueError("Path must be a non-empty string")
 
-        # 1. First determine if this is an addon setting or core setting
-        parts = path.split(".")
-        if len(parts) < 2:
-            raise ValueError(
-                f"Invalid settings path: {path}. Must have at least two parts."
+        # For now, all patches are applied to the active bundle's settings.
+        # This could be extended to allow patching project/user scopes.
+        if scope != "bundle":
+            raise NotImplementedError(
+                "Currently, only 'bundle' scope patching is supported."
             )
 
-        top_level = parts[0]
-        addon_name = None
+        # 1. Get the name of the bundle to be patched.
+        active_bundle_name = self._bundle_manager.get_active_bundle().name
 
-        if top_level == "addons" and len(parts) >= 2:
-            addon_name = parts[1]
-            # Remove "addons.addon_name" prefix for storage
-            setting_path = ".".join(parts[2:]) if len(parts) > 2 else ""
-        elif top_level == "core":
-            # Remove "core" prefix for storage
-            setting_path = ".".join(parts[1:]) if len(parts) > 1 else ""
-        else:
-            raise ValueError(
-                f"Invalid top-level setting: {top_level}. Must be 'core' or 'addons'."
-            )
+        # 2. Load all current settings for the 'bundle' scope.
+        all_bundle_settings = await self._db_manager.get_settings("bundle")
+        if not isinstance(all_bundle_settings, dict):
+            all_bundle_settings = {}
 
-        # 2. Load current settings for this scope/addon
-        current_settings = await self._db_manager.get_settings(scope, addon_name)
-        if not current_settings:
-            current_settings = {}
+        # 3. Get or create the settings dict for the specific active bundle.
+        target_bundle_settings = all_bundle_settings.setdefault(active_bundle_name, {})
 
-        # 3. Update the settings with the new value
-        if setting_path:
-            # Need to update a nested path
-            target = current_settings
-            path_parts = setting_path.split(".")
+        # 4. Update the settings dict with the new value at the specified path.
+        _set_nested_value(target_bundle_settings, path, value)
 
-            # Navigate to the parent of the leaf node
-            for i, part in enumerate(path_parts[:-1]):
-                if part not in target:
-                    target[part] = {}
-                elif not isinstance(target[part], dict):
-                    # If we encounter a non-dict value in the path, convert it to dict
-                    target[part] = {}
-                target = target[part]
+        # 5. Save the entire updated settings object back to the database.
+        await self._db_manager.save_settings(scope, all_bundle_settings)
 
-            # Set the leaf value
-            target[path_parts[-1]] = value
-        else:
-            # Direct setting at the root level
-            current_settings = value
-
-        # 4. Save the updated settings back to the database
-        await self._db_manager.save_settings(scope, current_settings, addon_name)
-
-        # 5. Rebuild the in-memory settings model to apply the change.
+        # 6. Rebuild the in-memory settings model to apply the change.
         # This is inefficient for frequent updates but guarantees consistency.
-        # A more optimized implementation might update the model in-place.
         log.debug(f"Rebuilding settings model to apply patch for '{path}'...")
         self._is_built = False  # Allow build_settings to run again
         await self.build_settings()
 
-        log.info(f"Updated setting '{path}' in '{scope}' scope.")
+        log.info(
+            f"Updated setting '{path}' in '{scope}' scope for bundle '{active_bundle_name}'."
+        )

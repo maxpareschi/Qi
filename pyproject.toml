@@ -14,10 +14,8 @@ dependencies = [
     "pytest-asyncio>=1.0.0",
     "pywebview>=5.4",
     "deepmerge",
+    "pytest-mock>=3.14.1",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-
-[project.optional-dependencies]
-# ... existing code ...
