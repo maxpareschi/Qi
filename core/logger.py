@@ -1,8 +1,12 @@
-# core/logging.py
+# core/logger.py
+
+"""
+This module contains the logger for the Qi system.
+"""
 
 import logging
 
-from core.launch_config import qi_launch_config
+from core.config import qi_launch_config
 
 # ANSI color codes
 COLORS = {

@@ -1,3 +1,9 @@
+# core/addon/base.py
+
+"""
+This module contains the base class for all Qi addons.
+"""
+
 from __future__ import annotations
 
 import abc

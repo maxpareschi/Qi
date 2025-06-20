@@ -1,12 +1,17 @@
-import os
+# core/gui/window_manager.py
+
+"""
+This module contains the manager for all Qi windows.
+"""
+
 import uuid
 from functools import partial
-from typing import Any
+from typing import Any, Final
 
 import webview
 
+from core.config import qi_launch_config
 from core.gui import window_api
-from core.launch_config import qi_launch_config
 from core.logger import get_logger
 
 log = get_logger(__name__)
@@ -36,11 +41,11 @@ class QiWindowManager:
         session_id = session_id or str(uuid.uuid4())
         window_id = str(uuid.uuid4())
 
-        server_address = os.getenv("QI_LOCAL_SERVER", "127.0.0.1")
-        server_port = os.getenv("QI_LOCAL_PORT", 8000)
+        server_address = qi_launch_config.host
+        server_port = qi_launch_config.port
         use_ssl = (
-            os.getenv("QI_SSL_KEY_PATH") is not None
-            and os.getenv("QI_SSL_CERT_PATH") is not None
+            qi_launch_config.ssl_key_path is not None
+            and qi_launch_config.ssl_cert_path is not None
         )
         protocol = "https" if use_ssl else "http"
         url = f"{protocol}://{server_address}:{server_port}/{addon}?session_id={session_id}&window_id={window_id}"
@@ -106,3 +111,6 @@ class QiWindowManager:
         log.debug("Destroying all windows to end event loop.")
         for window_id in list(self._windows.keys()):
             self.close(window_id)
+
+
+qi_window_manager: Final[QiWindowManager] = QiWindowManager()

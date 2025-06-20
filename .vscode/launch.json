@@ -11,7 +11,8 @@
                 "enabled": true
             },
             "env": {
-                "PYTHONPATH": "${workspaceFolder}${pathSeparator}${env:PYTHONPATH}"
+                "PYTHONPATH": "${workspaceFolder}${pathSeparator}${env:PYTHONPATH}",
+                "PYTHONDONTWRITEBYTECODE": "1"
             }
         }
     ]

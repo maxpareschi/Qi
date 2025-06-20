@@ -1,3 +1,9 @@
+# core/addon/discovery.py
+
+"""
+This module contains functions for discovering and loading addons.
+"""
+
 import importlib.util
 import inspect
 import sys

@@ -1,3 +1,5 @@
+# core/db/adapters.py
+
 """
 Adapter interfaces for database and authentication services.
 

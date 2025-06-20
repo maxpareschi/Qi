@@ -1,4 +1,5 @@
-# server.py
+# core/server/server.py
+
 """
 Main FastAPI application for the Qi Core Server.
 
@@ -10,7 +11,7 @@ It also configures middleware based on the development mode (dev proxy or SPA st
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from core.launch_config import qi_launch_config
+from core.config import qi_launch_config
 from core.logger import get_logger
 from core.messaging.hub import qi_hub
 from core.models import QiMessage, QiSession

@@ -1,167 +1,140 @@
+# app/launcher.py
+
+"""
+This module contains the main application class for the Qi system.
+"""
+
 import asyncio
 import os
-from pathlib import Path
 
 from app.runners import run_server
-from core.addon.manager import QiAddonManager
+from core.addon.manager import qi_addon_manager
 from core.bundle.manager import qi_bundle_manager
+from core.config import qi_launch_config
 from core.constants import BASE_PATH
-from core.db.bus_handlers import register_db_handlers
-from core.db.file_db import JsonFileDbAdapter
-from core.db.manager import QiDbManager
-from core.db.mock_auth import MockAuthAdapter
-from core.gui.window_manager import QiWindowManager
-from core.launch_config import qi_launch_config
+from core.gui.window_manager import qi_window_manager
 from core.logger import get_logger
 from core.settings.bus_handlers import register_settings_handlers
-from core.settings.manager import QiSettingsManager
+from core.settings.manager import qi_settings_manager
 
 log = get_logger(__name__)
 
 
-def apply_bundle_env():
+class QiApplication:
     """
-    Applies the environment variables from the active bundle to the current process.
+    The main application class. Orchestrates the startup, running, and
+    shutdown of all core services and managers.
     """
-    active_bundle = qi_bundle_manager.get_active_bundle()
-    bundle_env = active_bundle.env
-    if not bundle_env:
-        log.info("No environment variables to apply for the active bundle.")
-        return
 
-    log.info(
-        f"Applying environment variables for bundle '{active_bundle.name}': {bundle_env}"
-    )
-    os.environ.update(bundle_env)
+    def __init__(self):
+        log.info("Qi application is initializing...")
+        self._server_thread = None
+        self.main_window_icon: str | None = None
 
+    def _apply_bundle_env(self):
+        """
+        Applies the environment variables from the active bundle to the current process.
+        """
+        active_bundle = qi_bundle_manager.get_active_bundle()
+        bundle_env = active_bundle.env
+        if not bundle_env:
+            log.info("No environment variables to apply for the active bundle.")
+            return
 
-def initialize_db_manager(db_manager: QiDbManager):
-    """
-    Initialize the database manager with mock adapters.
-    """
-    # Create a data directory in the project root
-    data_dir = Path(BASE_PATH) / "data"
-    data_dir.mkdir(exist_ok=True)
+        log.info(
+            f"Applying environment variables for bundle '{active_bundle.name}': {bundle_env}"
+        )
+        os.environ.update(bundle_env)
 
-    # Initialize adapters
-    auth_adapter = MockAuthAdapter()
-    file_adapter = JsonFileDbAdapter(str(data_dir))
+    def _initialize_addons(self):
+        """
+        Discovers and loads all addons in two phases.
+        This will automatically load and register the 'db' and 'auth'
+        provider addons first, making them available for all other addons.
+        """
+        qi_addon_manager.discover_addons(qi_launch_config.addon_paths)
 
-    # Set adapters on the manager
-    db_manager.set_auth_adapter(auth_adapter)
-    db_manager.set_file_adapter(file_adapter)
+        # Phase 1: Load provider addons (auth, db)
+        qi_addon_manager.load_provider_addons()
+        log.info("Provider addons loaded successfully.")
 
-    # Register message bus handlers
-    register_db_handlers(db_manager)
+        # TODO: Authentication handshake would happen here
 
-    log.info("Database manager initialized with mock adapters")
+        # Phase 2: Load regular addons
+        qi_addon_manager.load_regular_addons()
+        log.info("Regular addons loaded successfully.")
 
+    async def _initialize_settings(self):
+        """
+        Builds the effective settings and registers handlers.
+        """
+        await qi_settings_manager.build_settings()
+        register_settings_handlers()
+        log.info("Settings manager initialized.")
 
-def initialize_addon_manager():
-    """
-    Initialize the addon manager and load addons.
-    """
-    addon_manager = QiAddonManager()
-    addon_manager.discover_addons(qi_launch_config.addon_paths)
+    def _start_server(self):
+        """
+        Starts the Uvicorn server in a separate thread.
+        """
+        self._server_thread = run_server(
+            qi_launch_config.host,
+            qi_launch_config.port,
+            qi_launch_config.ssl_key_path,
+            qi_launch_config.ssl_cert_path,
+            qi_launch_config.dev_mode,
+        )
+        log.info(
+            f"FastAPI server started on http://{qi_launch_config.host}:{qi_launch_config.port}"
+        )
 
-    # Phase 1: Load provider addons (auth, db)
-    try:
-        addon_manager.load_provider_addons()
-        log.info("Provider addons loaded successfully")
-    except Exception as e:
-        log.error(f"Failed to load provider addons: {e}")
-        raise
+    def _create_main_window(self):
+        """
+        Creates the main application window.
+        """
+        self.main_window_icon = os.path.join(
+            BASE_PATH,
+            "resources",
+            "qi-icons",
+            "qi_512.png",
+        ).replace("\\", "/")
 
-    # TODO: Authentication handshake would happen here
+        qi_window_manager.create_window(
+            addon="addon-skeleton", session_id="main-session"
+        )
 
-    # Phase 2: Load regular addons
-    try:
-        addon_manager.load_regular_addons()
-        log.info("Regular addons loaded successfully")
-    except Exception as e:
-        log.error(f"Failed to load regular addons: {e}")
-        raise
+    def start(self):
+        """
+        Starts all services in the correct order.
+        """
+        try:
+            log.info("--- Qi Application Starting ---")
+            self._apply_bundle_env()
+            self._initialize_addons()
+            asyncio.run(self._initialize_settings())
+            self._start_server()
+            self._create_main_window()
+            log.info("--- Qi Application Startup Complete ---")
+        except Exception as e:
+            log.critical(f"Application startup failed: {e}", exc_info=True)
+            self.stop()
+            raise
 
-    return addon_manager
+    def run(self):
+        """
+        Starts the application and enters the main GUI loop.
+        """
+        self.start()
+        log.info("Entering main window event loop...")
+        qi_window_manager.run(icon=self.main_window_icon)
+        # This part is blocking. Code after this will run on shutdown.
+        self.stop()
 
-
-async def initialize_settings_manager(addon_manager: QiAddonManager):
-    """
-    Initialize the settings manager and build the effective settings.
-    """
-    settings_manager = QiSettingsManager(addon_manager)
-    await settings_manager.build_settings()
-
-    # Register message bus handlers
-    register_settings_handlers(settings_manager)
-
-    log.info("Settings manager initialized")
-    return settings_manager
-
-
-def bind_window_manager(window_manager: QiWindowManager):
-    """
-    Register window manager message bus handlers.
-    """
-    # TODO: Implement window manager message handlers
-    pass
-
-
-def qi_gui_launcher():
-    """
-    Launcher for the hub.
-    """
-    # Create an asyncio event loop to run async functions
-    loop = asyncio.get_event_loop()
-
-    # Apply the active bundle's environment
-    apply_bundle_env()
-
-    # Initialize the database manager
-    db_manager = QiDbManager()
-    initialize_db_manager(db_manager)
-
-    # Initialize the addon manager
-    try:
-        addon_manager = initialize_addon_manager()
-    except Exception as e:
-        log.critical(f"Failed to initialize addon manager: {e}")
-        return
-
-    # Initialize the settings manager
-    try:
-        loop.run_until_complete(initialize_settings_manager(addon_manager))
-    except Exception as e:
-        log.critical(f"Failed to initialize settings manager: {e}")
-        return
-
-    # Initialize the window manager
-    window_manager = QiWindowManager()
-    bind_window_manager(window_manager)
-
-    # Start the server
-    run_server(
-        qi_launch_config.host,
-        qi_launch_config.port,
-        qi_launch_config.ssl_key_path,
-        qi_launch_config.ssl_cert_path,
-        qi_launch_config.dev_mode,
-    )
-
-    icon_path = os.path.join(
-        BASE_PATH,
-        "resources",
-        "qi-icons",
-        "qi_512.png",
-    ).replace("\\", "/")
-
-    window_manager.create_window(addon="addon-skeleton", session_id="main-session")
-    window_manager.run(
-        icon=icon_path,
-    )
-
-    # Clean shutdown
-    addon_manager.close_all()
-    log.info("All addons closed")
-
-    os._exit(0)
+    def stop(self):
+        """
+        Gracefully shuts down all application services.
+        """
+        log.info("--- Qi Application Shutting Down ---")
+        qi_addon_manager.close_all()
+        log.info("All addons closed.")
+        # The server thread is a daemon, so it will exit with the main process.
+        log.info("--- Qi Application Shutdown Complete ---")

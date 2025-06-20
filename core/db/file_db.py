@@ -1,3 +1,5 @@
+# core/db/file_db.py
+
 """
 File-based storage adapter for development and testing.
 
@@ -23,6 +25,8 @@ class JsonFileDbAdapter(QiFileDbAdapter):
 
     This adapter stores data in JSON files in a specified data directory.
     It organizes data by type (settings, etc.) and scope.
+    It is designed to be async-safe and performant by offloading file I/O
+    to a thread pool and using per-file locks to prevent race conditions.
     """
 
     def __init__(self, data_dir: str):
@@ -45,7 +49,18 @@ class JsonFileDbAdapter(QiFileDbAdapter):
         # "load_time" is the monotonic time the cache entry was created (from time.monotonic())
         self._cache_ttl = 5.0  # seconds
 
+        # Per-file locks to prevent race conditions on file read/writes
+        self._file_locks: dict[Path, asyncio.Lock] = {}
+        self._master_lock = asyncio.Lock()  # To protect access to _file_locks
+
         log.info(f"JsonFileDbAdapter initialized with data directory: {self._data_dir}")
+
+    async def _get_lock(self, file_path: Path) -> asyncio.Lock:
+        """Get or create a lock for a specific file path."""
+        async with self._master_lock:
+            if file_path not in self._file_locks:
+                self._file_locks[file_path] = asyncio.Lock()
+            return self._file_locks[file_path]
 
     def _get_path_for_scope(self, scope: str) -> Path:
         """Constructs the file path for a given settings scope."""
@@ -107,27 +122,30 @@ class JsonFileDbAdapter(QiFileDbAdapter):
         Returns:
             The loaded JSON data, or None if file not found
         """
-        # Simulate I/O delay
-        await asyncio.sleep(0.001)
-
         file_path = self._data_dir / key
+        lock = await self._get_lock(file_path)
 
-        # Check if cache is valid
-        if self._is_cache_valid(key, file_path):
-            log.debug(f"Cache hit for '{key}'")
-            return self._cache[key].get("data")
+        async with lock:
+            # Check if cache is valid
+            if self._is_cache_valid(key, file_path):
+                log.debug(f"Cache hit for '{key}'")
+                return self._cache[key].get("data")
 
-        if not file_path.exists() or not file_path.is_file():
-            # If file doesn't exist, ensure it's removed from cache
-            if key in self._cache:
-                del self._cache[key]
-            return None
+            exists = await asyncio.to_thread(file_path.is_file)
+            if not exists:
+                if key in self._cache:
+                    del self._cache[key]
+                return None
 
-        try:
-            mtime = file_path.stat().st_mtime
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                # Cache the data with current file mtime and monotonic load time
+            try:
+                mtime = (await asyncio.to_thread(file_path.stat)).st_mtime
+
+                def _read_file():
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+
+                data = await asyncio.to_thread(_read_file)
+
                 self._cache[key] = {
                     "data": data,
                     "mtime": mtime,
@@ -135,12 +153,11 @@ class JsonFileDbAdapter(QiFileDbAdapter):
                 }
                 log.debug(f"Cache miss for '{key}', loaded from disk.")
                 return data
-        except (json.JSONDecodeError, IOError, FileNotFoundError) as e:
-            log.error(f"Error reading or decoding file {file_path}: {e}")
-            # Ensure invalid entry is removed from cache
-            if key in self._cache:
-                del self._cache[key]
-            raise StorageError(f"Failed to read data: {e}")
+            except (json.JSONDecodeError, IOError, FileNotFoundError) as e:
+                log.error(f"Error reading or decoding file {file_path}: {e}")
+                if key in self._cache:
+                    del self._cache[key]
+                raise StorageError(f"Failed to read data: {e}")
 
     async def set(self, key: str, value: dict[str, Any]) -> None:
         """
@@ -150,32 +167,31 @@ class JsonFileDbAdapter(QiFileDbAdapter):
             key: Path to the JSON file, relative to data_dir
             value: Data to store (must be JSON serializable)
         """
-        # Simulate I/O delay
-        await asyncio.sleep(0.001)
-
         file_path = self._data_dir / key
+        lock = await self._get_lock(file_path)
 
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        async with lock:
+            await asyncio.to_thread(file_path.parent.mkdir, parents=True, exist_ok=True)
 
-        try:
-            # Write to a temporary file first
-            temp_file_path = file_path.with_suffix(f"{file_path.suffix}.tmp")
-            with open(temp_file_path, "w", encoding="utf-8") as f:
-                json.dump(value, f, indent=2)
-            # Atomic rename
-            os.replace(temp_file_path, file_path)
+            try:
+                temp_file_path = file_path.with_suffix(f"{file_path.suffix}.tmp")
 
-            # Update cache after successful write
-            mtime = file_path.stat().st_mtime
-            self._cache[key] = {
-                "data": value,
-                "mtime": mtime,
-                "load_time": time.monotonic(),
-            }
-        except (TypeError, IOError) as e:
-            log.error(f"Error writing to file {file_path}: {e}")
-            raise StorageError(f"Failed to write data: {e}")
+                def _write_file():
+                    with open(temp_file_path, "w", encoding="utf-8") as f:
+                        json.dump(value, f, indent=2)
+                    os.replace(temp_file_path, file_path)
+
+                await asyncio.to_thread(_write_file)
+
+                mtime = (await asyncio.to_thread(file_path.stat)).st_mtime
+                self._cache[key] = {
+                    "data": value,
+                    "mtime": mtime,
+                    "load_time": time.monotonic(),
+                }
+            except (TypeError, IOError) as e:
+                log.error(f"Error writing to file {file_path}: {e}")
+                raise StorageError(f"Failed to write data: {e}")
 
     async def delete(self, key: str) -> bool:
         """
@@ -187,26 +203,25 @@ class JsonFileDbAdapter(QiFileDbAdapter):
         Returns:
             True if file was deleted, False if not found
         """
-        # Simulate I/O delay
-        await asyncio.sleep(0.001)
-
         file_path = self._data_dir / key
+        lock = await self._get_lock(file_path)
 
-        if not file_path.exists():
-            return False
+        async with lock:
+            exists = await asyncio.to_thread(file_path.exists)
+            if not exists:
+                return False
 
-        try:
-            os.remove(file_path)
-            log.info(f"Deleted file: {file_path}")
+            try:
+                await asyncio.to_thread(os.remove, file_path)
+                log.info(f"Deleted file: {file_path}")
 
-            # Remove from cache
-            if key in self._cache:
-                del self._cache[key]
+                if key in self._cache:
+                    del self._cache[key]
 
-            return True
-        except IOError as e:
-            log.error(f"Error deleting file {file_path}: {e}")
-            raise StorageError(f"Failed to delete data: {e}")
+                return True
+            except IOError as e:
+                log.error(f"Error deleting file {file_path}: {e}")
+                raise StorageError(f"Failed to delete data: {e}")
 
     def invalidate_cache(self, key: str | None = None) -> None:
         """
@@ -227,23 +242,24 @@ class JsonFileDbAdapter(QiFileDbAdapter):
         List all keys (file paths) in the data directory.
         An empty prefix lists all keys.
         """
-        # Simulate I/O delay
-        await asyncio.sleep(0.001)
 
-        start_path = self._data_dir / prefix
-        if not start_path.exists():
+        # This method doesn't modify files, so locking is less critical,
+        # but wrapping in to_thread is good practice for potentially slow I/O.
+        def _list_files():
+            start_path = self._data_dir / prefix
+            if not start_path.exists():
+                return []
+            if start_path.is_dir():
+                return [
+                    str(p.relative_to(self._data_dir))
+                    for p in start_path.rglob("*")
+                    if p.is_file()
+                ]
+            elif start_path.is_file():
+                return [str(start_path.relative_to(self._data_dir))]
             return []
 
-        # Find all files recursively and return their paths relative to data_dir
-        if start_path.is_dir():
-            return [
-                str(p.relative_to(self._data_dir))
-                for p in start_path.rglob("*")
-                if p.is_file()
-            ]
-        elif start_path.is_file():
-            return [str(start_path.relative_to(self._data_dir))]
-        return []
+        return await asyncio.to_thread(_list_files)
 
     async def get_settings(self, scope: str) -> dict[str, Any]:
         """

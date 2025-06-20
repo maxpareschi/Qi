@@ -1,3 +1,9 @@
+# core/server/middleware.py
+
+"""
+This module contains the middleware for the Qi server.
+"""
+
 import json
 import mimetypes
 import os

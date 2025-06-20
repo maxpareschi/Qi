@@ -1,11 +1,16 @@
 # core/server/settings_routes.py
+
+"""
+This module contains the settings routes for the Qi server.
+"""
+
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core.logger import get_logger
-from core.settings.manager import QiSettingsManager
+from core.settings.manager import qi_settings_manager
 
 log = get_logger(__name__)
 
@@ -15,7 +20,7 @@ class SettingsPatch(BaseModel):
     value: Any = Field(..., description="The new value for the setting.")
 
 
-def create_settings_router(settings_manager: QiSettingsManager) -> APIRouter:
+def create_settings_router() -> APIRouter:
     """Creates a FastAPI router for settings-related endpoints."""
     router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -25,7 +30,7 @@ def create_settings_router(settings_manager: QiSettingsManager) -> APIRouter:
         Retrieves the entire settings schema, including current values.
         """
         try:
-            return settings_manager.get_schema()
+            return qi_settings_manager.get_schema()
         except RuntimeError as e:
             log.error(f"Error getting settings schema: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -41,7 +46,7 @@ def create_settings_router(settings_manager: QiSettingsManager) -> APIRouter:
                 detail="Invalid scope. Must be 'bundle', 'project', or 'user'.",
             )
         try:
-            await settings_manager.patch_value(scope, patch.path, patch.value)
+            await qi_settings_manager.patch_value(scope, patch.path, patch.value)
             return {
                 "status": "success",
                 "message": f"Setting '{patch.path}' updated in scope '{scope}'.",

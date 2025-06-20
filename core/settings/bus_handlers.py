@@ -1,12 +1,18 @@
+# core/settings/bus_handlers.py
+
+"""
+This module contains the message handlers for the settings service.
+"""
+
 from core.constants import HUB_ID
 from core.logger import get_logger
 from core.messaging.hub import qi_hub
-from core.settings.manager import QiSettingsManager
+from core.settings.manager import qi_settings_manager
 
 log = get_logger(__name__)
 
 
-def register_settings_handlers(settings_manager: QiSettingsManager) -> None:
+def register_settings_handlers() -> None:
     """
     Register all settings-related handlers with the message bus.
     """
@@ -27,7 +33,7 @@ def register_settings_handlers(settings_manager: QiSettingsManager) -> None:
             return None
 
         default = payload.get("default")
-        value = settings_manager.get_value(path, default)
+        value = qi_settings_manager.get_value(path, default)
         return {"path": path, "value": value}
 
     @qi_hub.on("config.schema", session_id=HUB_ID)
@@ -46,7 +52,7 @@ def register_settings_handlers(settings_manager: QiSettingsManager) -> None:
         path = payload.get("path")
 
         try:
-            schema = settings_manager.get_schema(path)
+            schema = qi_settings_manager.get_schema(path)
             if path:
                 return {"path": path, "schema": schema}
             else:
@@ -73,7 +79,7 @@ def register_settings_handlers(settings_manager: QiSettingsManager) -> None:
             return {"success": False, "error": "Scope and path are required."}
 
         try:
-            await settings_manager.patch_value(scope, path, value)
+            await qi_settings_manager.patch_value(scope, path, value)
             return {"success": True}
         except Exception as e:
             log.error(f"Error patching setting: {e}")

@@ -1,11 +1,15 @@
 # core/messaging/hub.py
 
+"""
+This module contains the hub for the Qi system.
+"""
+
 import asyncio
 from typing import Any, Final
 
 from core.constants import HUB_ID
 from core.logger import get_logger
-from core.messaging.message_bus import QiMessageBus
+from core.messaging.bus import QiMessageBus
 from core.models import QiMessage, QiSession
 
 log = get_logger(__name__)
@@ -14,12 +18,13 @@ log = get_logger(__name__)
 class QiHub:
     """
     Facade (“hub”) that exposes a simple API to developers:
-      • register(socket=..., session=...)
-      • unregister(session_id=...)
-      • publish(message=...)
-      • request(...)
-      • on(topic, session_id=...)
-      • on_event(event_name, session_id=...)
+
+        - register(socket=..., session=...)
+        - unregister(session_id=...)
+        - publish(message=...)
+        - request(...)
+        - on(topic, session_id=...)
+        - on_event(event_name, session_id=...)
 
     Under the hood, QiHub owns exactly one QiMessageBus instance and forwards
     calls (or decorators) to it. This is where addons and other modules interact
@@ -123,6 +128,17 @@ class QiHub:
                 )
 
     ########### PUBLISH / REQUEST (Facade) ###########
+
+    async def fire_event(self, event_name: str, *args: Any) -> None:
+        """
+        Fire an internal system event to all registered hooks.
+        This is for decoupled communication between internal core components.
+
+        Args:
+            event_name: the event to fire
+            *args: arguments to pass to the hooks
+        """
+        await self._fire(event_name, *args)
 
     async def publish(self, *, message: QiMessage) -> None:
         """

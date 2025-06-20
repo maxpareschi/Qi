@@ -1,4 +1,8 @@
-"""A module of simple functions to be exposed to the JavaScript frontend."""
+# core/gui/window_api.py
+
+"""
+A module of simple functions to be exposed to the JavaScript frontend.
+"""
 
 from webview import Window
 from webview.window import FixPoint

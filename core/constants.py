@@ -1,5 +1,9 @@
 # core/constants.py
 
+"""
+This module contains the constants for the Qi system.
+"""
+
 from pathlib import Path
 from typing import Final
 

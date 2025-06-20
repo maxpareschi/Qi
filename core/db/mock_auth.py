@@ -1,3 +1,5 @@
+# core/db/mock_auth.py
+
 """
 Mock authentication adapter for development and testing.
 

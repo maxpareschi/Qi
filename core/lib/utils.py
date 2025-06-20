@@ -1,3 +1,9 @@
+# core/lib/utils.py
+
+"""
+This module contains utility functions for the core library.
+"""
+
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial

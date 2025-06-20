@@ -1,4 +1,8 @@
-# core/bases/models.py
+# core/models.py
+
+"""
+This module contains the models for the Qi system.
+"""
 
 import time
 from enum import Enum
@@ -7,13 +11,16 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from core.launch_config import qi_launch_config
+from core.config import qi_launch_config
 
 TupleKey2: TypeAlias = tuple[str | None, str | None]
 """Type alias for a tuple of two strings or None."""
 
 TupleKey3: TypeAlias = tuple[str | None, str | None, str | None]
 """Type alias for a tuple of three strings or None."""
+
+QiCallback: TypeAlias = Callable[..., Any]
+"""Type alias for a generic callback function used in event handling or hooks."""
 
 
 class QiMessageType(str, Enum):
@@ -130,8 +137,28 @@ class QiMessage(QiBaseModel):
         return value
 
 
-QiCallback: TypeAlias = Callable[..., Any]
-"""Type alias for a generic callback function used in event handling or hooks."""
-
 QiHandler: TypeAlias = Callable[[QiMessage], Awaitable[Any] | Any]
 """Type alias for a Qi message handler function. Can be sync or async."""
+
+
+class QiBundle(QiBaseModel):
+    """
+    Defines a bundle, which is a collection of addons and environment variables
+    that can be activated for a session.
+    """
+
+    name: str = Field(..., description="The name of the bundle.")
+    allow_list: list[str] = Field(
+        default_factory=list, description="A list of addon names to allow."
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Environment variables for the bundle."
+    )
+
+
+class QiBundleCollection(QiBaseModel):
+    """A container for a dictionary of bundles, matching the TOML structure."""
+
+    bundles: dict[str, QiBundle] = Field(
+        default_factory=dict, description="A mapping of bundle names to bundle objects."
+    )

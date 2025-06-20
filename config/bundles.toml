@@ -8,12 +8,12 @@
 # An empty allow_list means all discovered addons will be loaded.
 [bundles.dev]
 name = "dev"
-allow_list = []
+allow_list = ["core_mock_auth", "core_json_db", "addon-skeleton"]
 env = { QI_ENV = "development", QI_BUNDLE = "dev" }
 
 # Example of a production bundle that loads a specific set of addons.
 [bundles.production]
 name = "production"
 # In a production scenario, only these specific addons would be loaded.
-allow_list = ["mock-auth", "core-publisher", "maya-host", "ftrack-provider"]
+allow_list = ["core_mock_auth", "core_json_db", "addon-skeleton"]
 env = { QI_ENV = "production", QI_BUNDLE = "production" } 

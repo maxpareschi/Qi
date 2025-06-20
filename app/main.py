@@ -1,13 +1,17 @@
-# hub/launcher.py
-from app.launcher import qi_gui_launcher
-from core.launch_config import qi_launch_config
+# app/main.py
+
+"""
+This module contains the main entry point for the Qi system.
+"""
+
+from app.launcher import QiApplication
+from core.config import qi_launch_config
 from core.logger import get_logger
 
 log = get_logger(__name__)
 
 if __name__ == "__main__":
-    log.info("Starting hub launcher")
-    log.info("Loading config...")
+    log.info("Starting Qi Application...")
     log.debug(
         f"Config loaded:\n{qi_launch_config.model_dump_json(indent=4)}",
     )
@@ -17,4 +21,5 @@ if __name__ == "__main__":
             "Headless mode enabled, but no cli is available yet. TODO: Implement cli."
         )
     else:
-        qi_gui_launcher()
+        app = QiApplication()
+        app.run()

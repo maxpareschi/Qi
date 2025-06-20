@@ -1,16 +1,22 @@
 # core/bundle/manager.py
 
+"""
+This module contains the manager for all Qi bundles.
+"""
+
 from __future__ import annotations
 
+import asyncio
 import tomllib
 from pathlib import Path
 from typing import Final
 
 from pydantic import ValidationError
 
-from core.bundle.model import Bundle, Bundles
-from core.launch_config import qi_launch_config
+from core.config import qi_launch_config
 from core.logger import get_logger
+from core.messaging.hub import qi_hub
+from core.models import QiBundle, QiBundleCollection
 
 log = get_logger(__name__)
 
@@ -24,16 +30,10 @@ class QiBundleManager:
     - Provides environment variables for the active bundle.
     """
 
-    _instance: QiBundleManager | None = None
-
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super().__new__(cls)
-            # Initialize instance attributes only on the first creation
-            cls._instance._bundles = {}
-            cls._instance._active_bundle_name = ""
-            cls._instance._load_bundles()
-        return cls._instance
+    def __init__(self):
+        self._bundles: dict[str, QiBundle] = {}
+        self._active_bundle_name: str = ""
+        self._load_bundles()
 
     def _load_bundles(self) -> None:
         """Loads bundles from the TOML file specified in the launch config."""
@@ -52,7 +52,7 @@ class QiBundleManager:
         try:
             with open(bundles_file, "rb") as f:
                 bundles_data = tomllib.load(f)
-            parsed_bundles = Bundles.model_validate(bundles_data)
+            parsed_bundles = QiBundleCollection.model_validate(bundles_data)
 
             for bundle_key, bundle_data in parsed_bundles.bundles.items():
                 if bundle_key != bundle_data.name:
@@ -64,7 +64,7 @@ class QiBundleManager:
                     continue
                 try:
                     # Validate each bundle individually
-                    self._bundles[bundle_key] = Bundle.model_validate(bundle_data)
+                    self._bundles[bundle_key] = QiBundle.model_validate(bundle_data)
                 except ValidationError as e:
                     log.error(
                         f"Skipping invalid bundle '{bundle_key}' in '{bundles_file}': {e}"
@@ -123,7 +123,7 @@ class QiBundleManager:
         """Creates and sets a single default bundle."""
         self._bundles.clear()
         default_name = qi_launch_config.default_bundle_name
-        default_bundle = Bundle(name=default_name, allow_list=[], env={})
+        default_bundle = QiBundle(name=default_name, allow_list=[], env={})
         self._bundles[default_name] = default_bundle
         self._active_bundle_name = default_name
 
@@ -131,7 +131,7 @@ class QiBundleManager:
         """Returns a list of available bundle names."""
         return list(self._bundles.keys())
 
-    def get_bundle(self, bundle_name: str) -> Bundle | None:
+    def get_bundle(self, bundle_name: str) -> QiBundle | None:
         """
         Retrieves a bundle by its name.
 
@@ -143,7 +143,7 @@ class QiBundleManager:
         """
         return self._bundles.get(bundle_name)
 
-    def get_active_bundle(self) -> Bundle:
+    def get_active_bundle(self) -> QiBundle:
         """Returns the currently active bundle object."""
         return self._bundles[self._active_bundle_name]
 
@@ -163,8 +163,16 @@ class QiBundleManager:
             )
             return False
 
+        if bundle_name == self._active_bundle_name:
+            return True  # No change, no need to fire event
+
         self._active_bundle_name = bundle_name
         log.info(f"Active bundle changed to '{bundle_name}'.")
+
+        # Notify other systems that the active bundle has changed.
+        # This is crucial for services like the settings manager to reload.
+        asyncio.create_task(qi_hub.fire_event("bundle.active.changed"))
+
         return True
 
     def env_for_bundle(self, name: str | None = None) -> dict[str, str]:

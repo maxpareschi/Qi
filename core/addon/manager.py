@@ -1,6 +1,12 @@
+# core/addon/manager.py
+
+"""
+This module contains the manager for all Qi addons.
+"""
+
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Final, Optional
 
 from core.addon.base import (
     AddonRole,
@@ -210,3 +216,6 @@ class QiAddonManager:
 
         if close_errors:
             log.warning(f"Encountered {len(close_errors)} errors while closing addons")
+
+
+qi_addon_manager: Final[QiAddonManager] = QiAddonManager()

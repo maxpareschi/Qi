@@ -1,4 +1,8 @@
-# core/bases/plugins.py
+# core/plugin/base.py
+
+"""
+This module contains the base class for all Qi plugins.
+"""
 
 import abc
 

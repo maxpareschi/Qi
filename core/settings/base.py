@@ -1,4 +1,8 @@
-from __future__ import annotations
+# core/settings/base.py
+
+"""
+This module contains the base class for the Qi settings.
+"""
 
 from copy import deepcopy
 from threading import RLock

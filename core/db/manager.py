@@ -1,3 +1,5 @@
+# core/db/manager.py
+
 """
 Database Manager for Qi.
 
@@ -5,7 +7,7 @@ This module provides a central manager for all database operations,
 coordinating between different adapters for authentication and storage.
 """
 
-from typing import Any, Optional, TypeVar
+from typing import Any, Final, Optional, TypeVar
 
 from core.db.adapters import (
     AuthenticationError,
@@ -304,4 +306,4 @@ class QiDbManager:
 # Create a singleton instance of the manager for easy access
 # across the application. This approach is suitable for a core
 # service that needs to maintain a consistent state.
-qi_db_manager = QiDbManager()
+qi_db_manager: Final[QiDbManager] = QiDbManager()

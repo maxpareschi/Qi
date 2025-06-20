@@ -1,11 +1,19 @@
-from typing import Any, Optional
+# core/settings/manager.py
+
+"""
+This module contains the manager for the Qi settings.
+"""
+
+import asyncio
+from typing import Any, Final, Optional
 
 from deepmerge import always_merger
 
-from core.addon.manager import QiAddonManager
+from core.addon.manager import qi_addon_manager
 from core.bundle.manager import qi_bundle_manager
 from core.db.manager import qi_db_manager
 from core.logger import get_logger
+from core.messaging.hub import qi_hub
 from core.settings.base import QiGroup, QiSettings
 
 log = get_logger(__name__)
@@ -39,12 +47,16 @@ class QiSettingsManager:
     Orchestrates the collection, merging, and access of all settings.
     """
 
-    def __init__(self, addon_manager: QiAddonManager):
-        self._addon_manager = addon_manager
+    def __init__(self):
+        self._addon_manager = qi_addon_manager
         self._bundle_manager = qi_bundle_manager
         self._db_manager = qi_db_manager
         self._root_settings = QiSettings(title="Qi Settings")
         self._is_built = False
+        self._build_lock = asyncio.Lock()
+
+        # When the active bundle changes, trigger a settings rebuild
+        qi_hub.on_event("bundle.active.changed", self.rebuild_settings)
 
     def _collect_addon_defaults(self) -> None:
         """
@@ -140,6 +152,17 @@ class QiSettingsManager:
         if log.isEnabledFor(log.DEBUG):
             log.debug("Final effective settings:\n%s", self._root_settings.get_values())
 
+    async def rebuild_settings(self) -> None:
+        """
+        Forces a rebuild of the settings. This is triggered by system
+        events like the active bundle changing. The lock ensures that this
+        doesn't conflict with other operations like patching.
+        """
+        async with self._build_lock:
+            log.info("Rebuilding settings due to system event (e.g., bundle change).")
+            self._is_built = False
+            await self.build_settings()
+
     def get_value(self, path: str, default: Any = None) -> Any:
         """
         Retrieves a setting value by its dot-separated path.
@@ -214,42 +237,48 @@ class QiSettingsManager:
             log.error("Cannot patch value: settings have not been built yet.")
             raise RuntimeError("Settings have not been built yet")
 
-        if scope not in ("bundle", "project", "user"):
-            raise ValueError(f"Invalid settings scope: {scope}")
+        async with self._build_lock:
+            if scope not in ("bundle", "project", "user"):
+                raise ValueError(f"Invalid settings scope: {scope}")
 
-        if not path or not isinstance(path, str):
-            raise ValueError("Path must be a non-empty string")
+            if not path or not isinstance(path, str):
+                raise ValueError("Path must be a non-empty string")
 
-        # For now, all patches are applied to the active bundle's settings.
-        # This could be extended to allow patching project/user scopes.
-        if scope != "bundle":
-            raise NotImplementedError(
-                "Currently, only 'bundle' scope patching is supported."
+            # For now, all patches are applied to the active bundle's settings.
+            # This could be extended to allow patching project/user scopes.
+            if scope != "bundle":
+                raise NotImplementedError(
+                    "Currently, only 'bundle' scope patching is supported."
+                )
+
+            # 1. Get the name of the bundle to be patched.
+            active_bundle_name = self._bundle_manager.get_active_bundle().name
+
+            # 2. Load all current settings for the 'bundle' scope.
+            all_bundle_settings = await self._db_manager.get_settings("bundle")
+            if not isinstance(all_bundle_settings, dict):
+                all_bundle_settings = {}
+
+            # 3. Get or create the settings dict for the specific active bundle.
+            target_bundle_settings = all_bundle_settings.setdefault(
+                active_bundle_name, {}
             )
 
-        # 1. Get the name of the bundle to be patched.
-        active_bundle_name = self._bundle_manager.get_active_bundle().name
+            # 4. Update the settings dict with the new value at the specified path.
+            _set_nested_value(target_bundle_settings, path, value)
 
-        # 2. Load all current settings for the 'bundle' scope.
-        all_bundle_settings = await self._db_manager.get_settings("bundle")
-        if not isinstance(all_bundle_settings, dict):
-            all_bundle_settings = {}
+            # 5. Save the entire updated settings object back to the database.
+            await self._db_manager.save_settings(scope, all_bundle_settings)
 
-        # 3. Get or create the settings dict for the specific active bundle.
-        target_bundle_settings = all_bundle_settings.setdefault(active_bundle_name, {})
+            # 6. Rebuild the in-memory settings model to apply the change.
+            # This is inefficient for frequent updates but guarantees consistency.
+            log.debug(f"Rebuilding settings model to apply patch for '{path}'...")
+            self._is_built = False  # Allow build_settings to run again
+            await self.build_settings()
 
-        # 4. Update the settings dict with the new value at the specified path.
-        _set_nested_value(target_bundle_settings, path, value)
+            log.info(
+                f"Updated setting '{path}' in '{scope}' scope for bundle '{active_bundle_name}'."
+            )
 
-        # 5. Save the entire updated settings object back to the database.
-        await self._db_manager.save_settings(scope, all_bundle_settings)
 
-        # 6. Rebuild the in-memory settings model to apply the change.
-        # This is inefficient for frequent updates but guarantees consistency.
-        log.debug(f"Rebuilding settings model to apply patch for '{path}'...")
-        self._is_built = False  # Allow build_settings to run again
-        await self.build_settings()
-
-        log.info(
-            f"Updated setting '{path}' in '{scope}' scope for bundle '{active_bundle_name}'."
-        )
+qi_settings_manager: Final[QiSettingsManager] = QiSettingsManager()
