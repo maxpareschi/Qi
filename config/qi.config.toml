@@ -1,9 +1,31 @@
-[qi]
-dev_mode = false
-log_level = "INFO"
-host = "localhost"
-port = 8000
-ssl_cert_path = ""
-ssl_key_path = ""
-base_path = ""
-extension_paths = "extensions"
+base_dir = ""  # The base directory of the project.
+dev_mode = false  # Whether to run in dev mode.
+headless = false  # Whether to run in headless mode.
+log_level = "INFO"  # The log level.
+
+[extensions]
+search_dirs = ["extensions"]  # The search directories for extensions.
+dev_servers = {}  # The dev servers for extensions.
+
+[bundles]
+file = "qi.bundles.toml"  # The bundles file.
+active_bundle = "production"  # The active bundle.
+fallback_order = ["production", "staging", "dev"]  # The fallback order for bundles.
+
+[bus]
+reply_timeout = 5.0  # The reply timeout for the bus.
+max_pending_requests_per_session = 100  # The maximum number of pending requests per session.
+
+[config]
+dir = "config"  # The config directory.
+env_file = "qi.config.env"  # The env file.
+toml_file = "qi.config.toml"  # The toml file.
+
+[data]
+dir = "data"  # The data directory.
+
+[local_server]
+host = "localhost"  # The host of the local server.
+port = 8000  # The port of the local server.
+ssl_cert_path = ""  # The path to the ssl cert.
+ssl_key_path = ""  # The path to the ssl key.
