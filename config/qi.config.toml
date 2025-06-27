@@ -6,4 +6,4 @@ port = 8000
 ssl_cert_path = ""
 ssl_key_path = ""
 base_path = ""
-addon_paths = "addons"
+extension_paths = "extensions"

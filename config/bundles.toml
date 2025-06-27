@@ -1,19 +1,19 @@
 # config/bundles.toml
 
-# Defines the available addon bundles for the Qi application.
-# Each bundle specifies a list of addons to load (`allow_list`) and
+# Defines the available extension bundles for the Qi application.
+# Each bundle specifies a list of extensions to load (`allow_list`) and
 # environment variables (`env`) to set for that configuration.
 
 # Default bundle for development.
-# An empty allow_list means all discovered addons will be loaded.
+# An empty allow_list means all discovered extensions will be loaded.
 [bundles.dev]
 name = "dev"
-allow_list = ["core_mock_auth", "core_json_db", "addon-skeleton"]
+allow_list = ["core_mock_auth", "core_json_db", "extension-skeleton"]
 env = { QI_ENV = "development", QI_BUNDLE = "dev" }
 
-# Example of a production bundle that loads a specific set of addons.
+# Example of a production bundle that loads a specific set of extensions.
 [bundles.production]
 name = "production"
-# In a production scenario, only these specific addons would be loaded.
-allow_list = ["core_mock_auth", "core_json_db", "addon-skeleton"]
+# In a production scenario, only these specific extensions would be loaded.
+allow_list = ["core_mock_auth", "core_json_db", "extension-skeleton"]
 env = { QI_ENV = "production", QI_BUNDLE = "production" } 

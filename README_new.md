@@ -47,17 +47,17 @@ async def handle_topic(message: Message):
 result = await hub.request("topic.name", {"param": "value"})
 ```
 
-### Addon System
+### Extension System
 
-The addon system allows extending the application with plugins. Addons can provide new functionality, UI components, or services.
+The extension system allows extending the application with plugins. Extensions can provide new functionality, UI components, or services.
 
 ```python
-from core_new.addon.base import AddonBase
+from core_new.extension.base import ExtensionBase
 
-class MyAddon(AddonBase):
+class MyExtension(ExtensionBase):
     @property
     def name(self) -> str:
-        return "my_addon"
+        return "my_extension"
 
     def register(self) -> None:
         # Register services, routes, etc.
@@ -83,7 +83,7 @@ await settings_manager.patch_value("group.key", "new_value")
 
 ### Bundle System
 
-The bundle system allows defining different configurations of the application. A bundle defines which addons are loaded and provides environment variables.
+The bundle system allows defining different configurations of the application. A bundle defines which extensions are loaded and provides environment variables.
 
 ```python
 from core_new.di import container
@@ -142,7 +142,7 @@ await window_manager.close_window(window_id)
 The application is structured as follows:
 
 - `core_new/`: Core components of the framework.
-  - `addon/`: Addon system.
+  - `extension/`: Extension system.
   - `bundle/`: Bundle system.
   - `db/`: Database system.
   - `gui/`: GUI components.
@@ -168,7 +168,7 @@ python app_new/main.py
 This will:
 
 1. Initialize the application.
-2. Load bundles and addons.
+2. Load bundles and extensions.
 3. Start the server.
 4. Open the main window (if not in headless mode).
 
@@ -176,10 +176,10 @@ This will:
 
 To extend the application, you can:
 
-- Create new addons in the `addons/` directory.
+- Create new extensions in the `extensions/` directory.
 - Create new bundles in the `config/bundles.toml` file.
-- Create new settings in addon's `get_settings()` method.
-- Create new API routes in addon's `register()` method.
+- Create new settings in extension's `get_settings()` method.
+- Create new API routes in extension's `register()` method.
 
 ## Conclusion
 

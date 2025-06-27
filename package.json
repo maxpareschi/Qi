@@ -13,16 +13,16 @@
   "private": true,
   "scripts": {
     "dev": "npm-run-all --print-label --parallel --race dev-ui dev-hub",
-    "dev-ui": "bun run --filter './addons/*/ui' dev",
+    "dev-ui": "bun run --filter './extensions/*/ui' dev",
     "build": "npm-run-all --serial build-ui hub",
-    "build-ui": "bun run --filter './addons/*/ui' build",
-    "preview-ui": "bun run --filter './addons/*/ui' preview",
+    "build-ui": "bun run --filter './extensions/*/ui' build",
+    "preview-ui": "bun run --filter './extensions/*/ui' preview",
     "dev-hub": "./.venv/Scripts/activate; python -m hub.main --dev-mode",
     "hub": "./.venv/Scripts/activate; python -O -m hub.main"
   },
   "type": "module",
   "workspaces": [
-    "./addons/*/ui"
+    "./extensions/*/ui"
   ],
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.7.2"
