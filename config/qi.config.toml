@@ -3,10 +3,6 @@ dev_mode = false  # Whether to run in dev mode.
 headless = false  # Whether to run in headless mode.
 log_level = "INFO"  # The log level.
 
-[extensions]
-search_dirs = ["extensions"]  # The search directories for extensions.
-dev_servers = {}  # The dev servers for extensions.
-
 [bundles]
 file = "qi.bundles.toml"  # The bundles file.
 active_bundle = "production"  # The active bundle.
@@ -23,6 +19,10 @@ toml_file = "qi.config.toml"  # The toml file.
 
 [data]
 dir = "data"  # The data directory.
+
+[extensions]
+search_dirs = ["extensions"]  # The search directories for extensions.
+dev_servers = {}  # The dev servers for extensions.
 
 [local_server]
 host = "localhost"  # The host of the local server.

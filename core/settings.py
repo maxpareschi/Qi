@@ -1,4 +1,4 @@
-# core/settings/base.py
+# core/settings.py
 
 """
 This module contains the base class for the Qi settings.
@@ -6,7 +6,7 @@ This module contains the base class for the Qi settings.
 
 from copy import deepcopy
 from threading import RLock
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import (
     BaseModel,
@@ -159,7 +159,7 @@ class QiGroup:
         self._children: dict[str, QiProp | "QiGroup"] = {}
         self._defaults: dict[str, Any] = {}
         self._parent: QiGroup | None = None
-        self._parent_key: Optional[str] = None
+        self._parent_key: str | None = None
 
         # run-time data
         self._model_cls: type[BaseModel] | None = None
